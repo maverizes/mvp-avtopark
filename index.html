@@ -96,18 +96,49 @@
       </div>
     </section>
 
-    <!-- Xarita -->
+    <!-- Xarita, yaqin turargohlar va joylar sxemasi -->
     <section class="section" id="xarita" aria-labelledby="xarita-title">
       <div class="wrap">
         <h2 id="xarita-title" class="h2">Qayerda joy bor</h2>
-        <p class="muted">Tunda yoki kunduzi qaysi turargohlar ochiqligini ko‘ring.</p>
-        <div class="filters" id="map-filters" role="group" aria-label="Vaqt bo‘yicha saralash"></div>
-        <div class="map">
-          <ul class="map__list" id="map-list"></ul>
-          <div class="map__frame card">
-            <iframe id="map-iframe" title="Turargohlar xaritasi" loading="lazy" referrerpolicy="no-referrer"></iframe>
-            <p class="map__hint small" id="map-hint"></p>
+        <p class="muted">Xaritadan turargohni tanlang — nechta joy bo‘shligini va sizdan qancha uzoqligini ko‘rasiz.</p>
+
+        <div class="toolbar">
+          <div class="filters" id="map-filters" role="group" aria-label="Vaqt bo‘yicha"></div>
+          <div class="toolbar__right">
+            <button class="chip" type="button" id="only-free" aria-pressed="false">Bo‘sh joyi borlar</button>
+            <button class="btn btn--sm locate" type="button" id="locate" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="3.5" fill="currentColor"/><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <span id="locate-label">Menga yaqinlari</span>
+            </button>
           </div>
+        </div>
+        <div class="near" id="near" role="status" aria-live="polite"></div>
+
+        <div class="finder">
+          <div class="finder__map card" id="map-card">
+            <div class="mv" id="mapview" tabindex="0" role="region" aria-roledescription="xarita" aria-label="Turargohlar xaritasi" aria-describedby="map-help"></div>
+            <div class="mv__ctrls">
+              <button class="mv__btn" type="button" id="zoom-in" aria-label="Kattalashtirish">+</button>
+              <button class="mv__btn" type="button" id="zoom-out" aria-label="Kichraytirish">−</button>
+              <button class="mv__btn" type="button" id="zoom-fit" aria-label="Hamma turargohlarni ko‘rsatish">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+            <p class="mv__toast" id="map-toast" aria-hidden="true"></p>
+            <div class="mv__foot">
+              <ul class="mv__legend" aria-label="Xarita belgilari">
+                <li><span class="dot dot--ok"></span>Joy bor</li>
+                <li><span class="dot dot--low"></span>Kam qoldi</li>
+                <li><span class="dot dot--full"></span>To‘la</li>
+                <li><span class="dot dot--closed"></span>Yopiq</li>
+                <li><span class="dot dot--me"></span>Siz</li>
+              </ul>
+              <a class="mv__attr" id="map-attr" href="#" target="_blank" rel="noopener"></a>
+            </div>
+            <p class="sr-only" id="map-help">Strelkalar bilan suring, plyus va minus bilan kattalashtiring. Turargohlar ro‘yxati xaritadan keyin keladi.</p>
+          </div>
+          <ul class="finder__list" id="map-list" aria-label="Turargohlar"></ul>
+          <div class="lot card" id="lot"></div>
         </div>
       </div>
     </section>
@@ -148,6 +179,15 @@
           <div class="field">
             <label for="f-scenario">Joy turi</label>
             <select id="f-scenario" name="scenario"></select>
+          </div>
+
+          <!-- Sxemadan tanlangan joy -->
+          <div class="picked" id="picked" hidden>
+            <div>
+              <span class="picked__label">Tanlangan joy</span>
+              <strong id="picked-text"></strong>
+            </div>
+            <button type="button" class="btn btn--ghost btn--sm" id="picked-clear">Bekor qilish</button>
           </div>
 
           <div class="field">
