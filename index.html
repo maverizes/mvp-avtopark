@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="uz">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JoyBor — turargoh joyi</title>
+  <meta name="description" content="Bo‘sh turargoh joylarini haydovchilar bilan ulaymiz.">
+  <meta name="theme-color" content="#141726">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Public+Sans:wght@400;500;600&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <a class="skip" href="#ariza">Arizaga o‘tish</a>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="wrap header__row">
+      <a class="brand" href="#top" data-cfg="brand">JoyBor</a>
+      <nav class="nav" aria-label="Asosiy">
+        <a href="#turlar">Joy turlari</a>
+        <a href="#xarita">Xarita</a>
+        <a href="#narx">Narx</a>
+        <a href="#savollar">Savollar</a>
+      </nav>
+      <div class="header__actions">
+        <a class="btn btn--ghost btn--sm" data-cfg-href="tel" href="#">
+          <span class="hide-sm">Qo‘ng‘iroq</span><span class="show-sm">Tel</span>
+        </a>
+        <a class="btn btn--sm" href="#ariza">Joy so‘rash</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="wrap hero__grid">
+        <div class="hero__text">
+          <p class="eyebrow"><span data-bind="scenario.title"></span><span class="badge" data-show="scenario.soon">tez
+              orada</span></p>
+          <h1 data-bind="scenario.heroTitle"></h1>
+          <p class="lead" data-bind="scenario.heroText"></p>
+          <div class="hero__cta">
+            <a class="btn btn--lg" href="#ariza">Joy so‘rash</a>
+            <a class="btn btn--ghost btn--lg" href="#xarita">Xaritada ko‘rish</a>
+          </div>
+          <p class="muted small">Ro‘yxatdan o‘tish shart emas. Ariza Telegram orqali operatorga boradi.</p>
+        </div>
+
+        <aside class="pilot card" aria-labelledby="pilot-title">
+          <p class="pilot__label">Pilot joy</p>
+          <h2 id="pilot-title" class="pilot__title" data-bind="location.title"></h2>
+          <dl class="pilot__list">
+            <div>
+              <dt>Manzil</dt>
+              <dd data-bind="location.address"></dd>
+            </div>
+            <div>
+              <dt>Joylar soni</dt>
+              <dd data-bind="location.slots"></dd>
+            </div>
+            <div>
+              <dt>Vaqt</dt>
+              <dd data-bind="scenario.time"></dd>
+            </div>
+            <div>
+              <dt>Narx</dt>
+              <dd class="accent" data-bind="location.priceText"></dd>
+            </div>
+          </dl>
+          <p class="pilot__note small" data-bind="location.note"></p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- Tanish holat -->
+    <section class="section" aria-labelledby="pains-title">
+      <div class="wrap">
+        <h2 id="pains-title" class="h2">Tanish holatmi?</h2>
+        <div class="grid3" id="pains"></div>
+      </div>
+    </section>
+
+    <!-- Ssenariy tanlagichi -->
+    <section class="section section--alt" id="turlar" aria-labelledby="turlar-title">
+      <div class="wrap">
+        <h2 id="turlar-title" class="h2">Sizga qanday joy kerak?</h2>
+        <p class="muted">Birini tanlang — narx, vaqt va forma shunga moslashadi.</p>
+        <div class="tabs" id="scenario-tabs" role="radiogroup" aria-label="Joy turi"></div>
+      </div>
+    </section>
+
+    <!-- Xarita -->
+    <section class="section" id="xarita" aria-labelledby="xarita-title">
+      <div class="wrap">
+        <h2 id="xarita-title" class="h2">Qayerda joy bor</h2>
+        <p class="muted">Tunda yoki kunduzi qaysi turargohlar ochiqligini ko‘ring.</p>
+        <div class="filters" id="map-filters" role="group" aria-label="Vaqt bo‘yicha saralash"></div>
+        <div class="map">
+          <ul class="map__list" id="map-list"></ul>
+          <div class="map__frame card">
+            <iframe id="map-iframe" title="Turargohlar xaritasi" loading="lazy" referrerpolicy="no-referrer"></iframe>
+            <p class="map__hint small" id="map-hint"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Qanday ishlaydi -->
+    <section class="section section--alt" aria-labelledby="steps-title">
+      <div class="wrap">
+        <h2 id="steps-title" class="h2">Qanday ishlaydi</h2>
+        <ol class="grid3 steps" id="steps"></ol>
+      </div>
+    </section>
+
+    <!-- Narx -->
+    <section class="section" id="narx" aria-labelledby="narx-title">
+      <div class="wrap">
+        <h2 id="narx-title" class="h2">Narx: <span data-bind="scenario.title"></span></h2>
+        <p class="muted">To‘lov birligi — <strong data-bind="scenario.unit"></strong>. Oldindan hech narsa to‘lamaysiz.
+        </p>
+        <div class="grid3" id="prices"></div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section section--alt" id="savollar" aria-labelledby="faq-title">
+      <div class="wrap wrap--narrow">
+        <h2 id="faq-title" class="h2">Savollar</h2>
+        <div class="faq" id="faq"></div>
+      </div>
+    </section>
+
+    <!-- Ariza formasi -->
+    <section class="section" id="ariza" aria-labelledby="ariza-title">
+      <div class="wrap wrap--narrow">
+        <h2 id="ariza-title" class="h2">Joy so‘rash</h2>
+        <p class="muted" data-bind="form.note"></p>
+
+        <form class="form card" id="form" novalidate>
+          <div class="field">
+            <label for="f-scenario">Joy turi</label>
+            <select id="f-scenario" name="scenario"></select>
+          </div>
+
+          <div class="field">
+            <label for="f-name">Ismingiz</label>
+            <input id="f-name" name="name" autocomplete="given-name" required>
+            <p class="error" data-error="name"></p>
+          </div>
+
+          <div class="field">
+            <label for="f-phone">Telefon</label>
+            <input id="f-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel"
+              placeholder="+998 90 123 45 67" required>
+            <p class="error" data-error="phone"></p>
+          </div>
+
+          <div class="field">
+            <label for="f-plate">Mashina raqami</label>
+            <input id="f-plate" name="plate" autocapitalize="characters" placeholder="01 A 123 BC" required>
+            <p class="error" data-error="plate"></p>
+          </div>
+
+          <div class="field">
+            <label for="f-address">Qayer yonida joy kerak?</label>
+            <input id="f-address" name="address" autocomplete="street-address"
+              placeholder="Ko‘cha, mahalla yoki mo‘ljal" required>
+            <p class="error" data-error="address"></p>
+          </div>
+
+          <!-- Ssenariyga qarab ko'rinadigan maydonlar -->
+          <div class="field" data-field="startDate" hidden>
+            <label for="f-startDate">Qachondan kerak?</label>
+            <input id="f-startDate" name="startDate" type="date">
+            <p class="error" data-error="startDate"></p>
+          </div>
+          <div class="field" data-field="date" hidden>
+            <label for="f-date">Sana</label>
+            <input id="f-date" name="date" type="date">
+            <p class="error" data-error="date"></p>
+          </div>
+          <div class="row2">
+            <div class="field" data-field="timeFrom" hidden>
+              <label for="f-timeFrom">Soat nechidan</label>
+              <input id="f-timeFrom" name="timeFrom" type="time">
+              <p class="error" data-error="timeFrom"></p>
+            </div>
+            <div class="field" data-field="timeTo" hidden>
+              <label for="f-timeTo">Soat nechigacha</label>
+              <input id="f-timeTo" name="timeTo" type="time">
+              <p class="error" data-error="timeTo"></p>
+            </div>
+          </div>
+          <div class="field" data-field="cars" hidden>
+            <label for="f-cars">Mashinalar soni</label>
+            <input id="f-cars" name="cars" type="number" min="1" inputmode="numeric">
+            <p class="error" data-error="cars"></p>
+          </div>
+
+          <div class="form__actions">
+            <button class="btn btn--lg" type="submit">Telegram orqali yuborish</button>
+            <button class="btn btn--ghost btn--lg" type="button" id="copy-btn">Matnni nusxalash</button>
+          </div>
+          <p class="status" id="form-status" role="status" aria-live="polite"></p>
+          <textarea class="fallback" id="fallback" rows="8" readonly hidden aria-label="Ariza matni"></textarea>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer__row">
+      <div>
+        <p class="brand" data-cfg="brand">JoyBor</p>
+        <p class="muted small" data-cfg="tagline"></p>
+      </div>
+      <div class="footer__links">
+        <a data-cfg-href="telegram" href="#">Telegram</a>
+        <a data-cfg-href="tel" href="#" data-cfg="phone"></a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+</body>
+
+</html>
