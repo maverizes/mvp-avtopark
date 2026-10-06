@@ -1,29 +1,33 @@
-// SQLite (Node ichida). Sxema migratsiyalar bilan; versiya PRAGMA user_version da saqlanadi.
-import { DatabaseSync } from 'node:sqlite';
+// Ma'lumotlar bazasi: lokal SQLite (Node ichida, fayl) yoki Turso (libSQL — serverless, masalan Vercel).
+// Ikkalasida SQL bir xil, interfeys ham bir xil va asinxron:
+//   get(sql, args) -> qator | undefined     all(sql, args) -> qatorlar
+//   run(sql, args) -> { changes, lastInsertRowid }
+//   exec(sql)      — bir nechta buyruq (migratsiya)
+//   tx(async (t) => ...) — yozish tranzaksiyasi; t ham shu interfeysga ega
 import fs from 'node:fs';
 import path from 'node:path';
 
 // Faqat oxiriga qo'shiladi — mavjud migratsiyani o'zgartirmang.
 const MIGRATIONS = [
   `
-  CREATE TABLE users (
+  CREATE TABLE IF NOT EXISTS users (
     id         INTEGER PRIMARY KEY,
     name       TEXT NOT NULL,
     phone      TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
-  CREATE INDEX users_phone ON users (phone);
+  CREATE INDEX IF NOT EXISTS users_phone ON users (phone);
 
-  CREATE TABLE sessions (
+  CREATE TABLE IF NOT EXISTS sessions (
     token_hash TEXT PRIMARY KEY,
     kind       TEXT NOT NULL CHECK (kind IN ('user', 'admin')),
     user_id    INTEGER REFERENCES users (id) ON DELETE CASCADE,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
-  CREATE INDEX sessions_expires ON sessions (expires_at);
+  CREATE INDEX IF NOT EXISTS sessions_expires ON sessions (expires_at);
 
-  CREATE TABLE lots (
+  CREATE TABLE IF NOT EXISTS lots (
     id           TEXT PRIMARY KEY,
     title        TEXT NOT NULL,
     address      TEXT NOT NULL DEFAULT '',
@@ -40,7 +44,7 @@ const MIGRATIONS = [
   );
 
   -- Operator qo'lda band deb belgilagan joylar (doimiy ijarachi va h.k.)
-  CREATE TABLE blocks (
+  CREATE TABLE IF NOT EXISTS blocks (
     lot_id     TEXT NOT NULL REFERENCES lots (id) ON DELETE CASCADE,
     spot       TEXT NOT NULL,
     period     TEXT NOT NULL CHECK (period IN ('night', 'day')),
@@ -48,8 +52,8 @@ const MIGRATIONS = [
     PRIMARY KEY (lot_id, spot, period)
   );
 
-  -- Bron (lot_id bor) yoki umumiy so'rov (lot_id NULL)
-  CREATE TABLE bookings (
+  -- Bron (lot_id va period bor) yoki umumiy so'rov (period NULL)
+  CREATE TABLE IF NOT EXISTS bookings (
     id          INTEGER PRIMARY KEY,
     user_id     INTEGER NOT NULL REFERENCES users (id),
     scenario_id TEXT NOT NULL,
@@ -71,46 +75,132 @@ const MIGRATIONS = [
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
-  CREATE INDEX bookings_occupancy ON bookings (lot_id, period, status, start_date, end_date);
-  CREATE INDEX bookings_user ON bookings (user_id, created_at);
-  CREATE INDEX bookings_status ON bookings (status, created_at);
+  CREATE INDEX IF NOT EXISTS bookings_occupancy ON bookings (lot_id, period, status, start_date, end_date);
+  CREATE INDEX IF NOT EXISTS bookings_user ON bookings (user_id, created_at);
+  CREATE INDEX IF NOT EXISTS bookings_status ON bookings (status, created_at);
   `
 ];
 
-export function openDb(file) {
+/** config.db.url bo'lsa — Turso/libSQL, aks holda lokal fayl (config.dbPath) */
+export async function openDb(config) {
+  const db = config.db?.url ? await openLibsql(config.db) : await openLocal(config.dbPath);
+  await migrate(db);
+  return db;
+}
+
+// ---------- Lokal: Node ichidagi SQLite ----------
+
+async function openLocal(file) {
+  const { DatabaseSync } = await import('node:sqlite');
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
-  const db = new DatabaseSync(file);
-  db.exec(`
+  const raw = new DatabaseSync(file);
+  raw.exec(`
     PRAGMA journal_mode = WAL;
     PRAGMA synchronous = NORMAL;
     PRAGMA foreign_keys = ON;
     PRAGMA busy_timeout = 5000;
   `);
-  migrate(db);
-  return db;
+
+  const cache = new Map();
+  const stmt = (sql) => {
+    let s = cache.get(sql);
+    if (!s) {
+      s = raw.prepare(sql);
+      cache.set(sql, s);
+    }
+    return s;
+  };
+  const api = {
+    kind: 'sqlite',
+    get: async (sql, args = []) => stmt(sql).get(...args),
+    all: async (sql, args = []) => stmt(sql).all(...args),
+    run: async (sql, args = []) => {
+      const r = stmt(sql).run(...args);
+      return { changes: Number(r.changes), lastInsertRowid: Number(r.lastInsertRowid) };
+    },
+    exec: async (sql) => raw.exec(sql),
+    close: async () => raw.close()
+  };
+
+  // Bu SQLite sinxron: tranzaksiya ichida faqat baza chaqiruvlari kutiladi (tarmoq yoki taymer yo'q),
+  // shuning uchun boshqa so'rovlar orasiga kira olmaydi. Tranzaksiyalar navbat bilan bajariladi.
+  let chain = Promise.resolve();
+  api.tx = (fn) => {
+    const run = async () => {
+      raw.exec('BEGIN IMMEDIATE');
+      try {
+        const result = await fn(api);
+        raw.exec('COMMIT');
+        return result;
+      } catch (err) {
+        raw.exec('ROLLBACK');
+        throw err;
+      }
+    };
+    const p = chain.then(run, run);
+    chain = p.catch(() => {});
+    return p;
+  };
+  return api;
 }
 
-function migrate(db) {
-  const { user_version: current } = db.prepare('PRAGMA user_version').get();
-  for (let v = current; v < MIGRATIONS.length; v++) {
-    tx(db, () => {
-      db.exec(MIGRATIONS[v]);
-      db.exec(`PRAGMA user_version = ${v + 1}`);
-    });
-  }
+// ---------- Turso / libSQL ----------
+
+async function openLibsql({ url, authToken }) {
+  const isFile = url.startsWith('file:');
+  // Masofaviy baza — sof JS (fetch) mijozi; serverless uchun HTTP (libsql:// -> https://)
+  const { createClient } = await import(isFile ? '@libsql/client' : '@libsql/client/web');
+  const client = createClient({ url: isFile ? url : url.replace(/^libsql:\/\//, 'https://'), authToken: authToken || undefined });
+
+  const wrap = (execute) => ({
+    get: async (sql, args = []) => (await execute({ sql, args })).rows[0],
+    all: async (sql, args = []) => (await execute({ sql, args })).rows,
+    run: async (sql, args = []) => {
+      const r = await execute({ sql, args });
+      return { changes: r.rowsAffected, lastInsertRowid: r.lastInsertRowid == null ? 0 : Number(r.lastInsertRowid) };
+    }
+  });
+
+  return {
+    kind: isFile ? 'libsql-file' : 'turso',
+    ...wrap((s) => client.execute(s)),
+    exec: (sql) => client.executeMultiple(sql),
+    async tx(fn) {
+      const t = await client.transaction('write');
+      try {
+        const result = await fn({ ...wrap((s) => t.execute(s)), exec: (sql) => t.executeMultiple(sql) });
+        await t.commit();
+        return result;
+      } catch (err) {
+        if (!t.closed) await t.rollback().catch(() => {});
+        throw err;
+      } finally {
+        t.close();
+      }
+    },
+    close: async () => client.close()
+  };
 }
 
-/** Tranzaksiya: yozish qulfi darhol olinadi, xatoda hammasi bekor qilinadi */
-export function tx(db, fn) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const result = fn();
-    db.exec('COMMIT');
-    return result;
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
-  }
+// ---------- Migratsiyalar ----------
+
+async function migrate(db) {
+  await db.exec('CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)');
+  // Yozish tranzaksiyasi: bir vaqtda ishga tushgan bir nechta nusxa migratsiyani ikki marta bajarmaydi
+  await db.tx(async (t) => {
+    const now = new Date().toISOString();
+    let done = (await t.get('SELECT COALESCE(MAX(version), 0) AS v FROM _migrations')).v;
+    if (done === 0 && db.kind === 'sqlite') {
+      // Avvalgi lokal baza: versiya PRAGMA user_version da saqlangan edi
+      const legacy = (await t.get('PRAGMA user_version')).user_version;
+      for (let v = 1; v <= legacy; v++) await t.run('INSERT INTO _migrations (version, applied_at) VALUES (?, ?)', [v, now]);
+      done = legacy;
+    }
+    for (let v = done; v < MIGRATIONS.length; v++) {
+      await t.exec(MIGRATIONS[v]);
+      await t.run('INSERT INTO _migrations (version, applied_at) VALUES (?, ?)', [v + 1, now]);
+    }
+  });
 }
 
 /** Bazadagi qatorni API ko'rinishiga o'tkazish */
@@ -133,24 +223,23 @@ export function lotFromRow(r) {
 
 /**
  * Bo'sh bazaga boshlang'ich turargohlar: pilot (yashirin, operator to'ldiradi)
- * va ixtiyoriy namunalar (bandlik operator belgisi sifatida yoziladi).
+ * va ixtiyoriy namunalar (bandligi operator belgisi sifatida yoziladi).
  */
-export function seedIfEmpty(db, { demo, seedFile }) {
-  if (db.prepare('SELECT COUNT(*) AS n FROM lots').get().n > 0) return 0;
-  const lots = JSON.parse(fs.readFileSync(seedFile, 'utf8')).filter((l) => demo || !l.isDemo);
-  const insLot = db.prepare(`
-    INSERT INTO lots (id, title, address, lat, lng, scenario_ids, prices, rows, slots, is_active, is_demo, sort)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const insBlock = db.prepare('INSERT INTO blocks (lot_id, spot, period) VALUES (?, ?, ?)');
-  tx(db, () => {
-    lots.forEach((l, i) => {
-      insLot.run(l.id, l.title, l.address ?? '', l.lat ?? null, l.lng ?? null, JSON.stringify(l.scenarioIds),
+export async function seedIfEmpty(db, { demo, lots }) {
+  return db.tx(async (t) => {
+    if ((await t.get('SELECT COUNT(*) AS n FROM lots')).n > 0) return 0;
+    const list = lots.filter((l) => demo || !l.isDemo);
+    for (const [i, l] of list.entries()) {
+      await t.run(`
+        INSERT INTO lots (id, title, address, lat, lng, scenario_ids, prices, rows, slots, is_active, is_demo, sort)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [l.id, l.title, l.address ?? '', l.lat ?? null, l.lng ?? null, JSON.stringify(l.scenarioIds),
         JSON.stringify(l.prices ?? {}), l.rows ? JSON.stringify(l.rows) : null, l.slots ?? null,
-        l.isActive === false ? 0 : 1, l.isDemo ? 1 : 0, i);
+        l.isActive === false ? 0 : 1, l.isDemo ? 1 : 0, i]);
       for (const [period, spots] of Object.entries(l.busy ?? {})) {
-        for (const spot of spots) insBlock.run(l.id, spot, period);
+        for (const spot of spots) await t.run('INSERT INTO blocks (lot_id, spot, period) VALUES (?, ?, ?)', [l.id, spot, period]);
       }
-    });
+    }
+    return list.length;
   });
-  return lots.length;
 }

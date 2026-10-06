@@ -1,16 +1,13 @@
 // HTTP ilova: API marshrutlari + statik fayllar. Testlarda ham shu funksiya ishlatiladi.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PERIODS, scenarioById } from '../shared/scenarios.js';
+import { PERIODS, scenarioById } from '../public/shared/scenarios.js';
 import { createRouter, parseCookies, readJson, securityHeaders, sendJson, serveStatic } from './http.js';
 import { rateLimiter } from './ratelimit.js';
 import { HttpError } from './validate.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const MOUNTS = [
-  ['/shared/', path.join(ROOT, 'shared')],
-  ['/', path.join(ROOT, 'public')]
-];
+const MOUNTS = [['/', path.join(ROOT, 'public')]];
 const PAGES = { '/': '/index.html', '/admin': '/admin.html', '/admin/': '/admin.html' };
 
 /** Operatorga yuboriladigan matn (oddiy matn — formatlash belgilari xavfsiz) */
@@ -34,7 +31,7 @@ function bookingMessage(b, user, origin) {
   return lines.join('\n');
 }
 
-export function createApp({ config, service, auth, notifier, log }) {
+export function createApp({ config, service, auth, notifier, log, dbKind = 'sqlite' }) {
   const router = createRouter();
   const limits = {
     api: rateLimiter({ windowMs: 60_000, max: 300 }),
@@ -49,18 +46,23 @@ export function createApp({ config, service, auth, notifier, log }) {
     ctx.res.setHeader('Retry-After', String(r.retryAfter));
     throw new HttpError(429, 'rate_limited', `Juda ko‘p urinish. ${Math.max(1, Math.ceil(r.retryAfter / 60))} daqiqadan keyin qayta urinib ko‘ring.`);
   };
-  const requireUser = (ctx) => {
-    const user = auth.user(ctx);
+  const requireUser = async (ctx) => {
+    const user = await auth.user(ctx);
     if (!user) throw new HttpError(401, 'auth_required', 'Avval ism va telefon raqamingizni kiriting.');
     return user;
   };
-  const requireAdmin = (ctx) => {
-    if (!auth.isAdmin(ctx)) throw new HttpError(401, 'admin_required', 'Operator sifatida kiring.');
+  const requireAdmin = async (ctx) => {
+    if (!(await auth.isAdmin(ctx))) throw new HttpError(401, 'admin_required', 'Operator sifatida kiring.');
   };
   const idParam = (v) => (/^\d{1,10}$/.test(v) ? Number(v) : NaN);
+  // Serverless'da javobdan keyin funksiya to'xtatiladi — xabar javobdan oldin yuboriladi
+  const notify = async (text) => {
+    const sending = notifier.send(text);
+    if (config.serverless) await sending;
+  };
 
   // ---------- Ommaviy ----------
-  router.get('/api/health', () => ({ ok: true }));
+  router.get('/api/health', () => ({ ok: true, db: dbKind, telegram: notifier.enabled }));
   router.get('/api/lots', () => service.listLots());
 
   // ---------- Haydovchi ----------
@@ -68,35 +70,38 @@ export function createApp({ config, service, auth, notifier, log }) {
   router.post('/api/auth/register', async (ctx) => {
     limit('register', ctx);
     const body = await ctx.body();
-    const current = auth.user(ctx);
-    if (current) return { user: service.updateUser(current.id, body) };
-    const user = service.createUser(body);
-    auth.start(ctx, 'user', user.id);
+    const current = await auth.user(ctx);
+    if (current) return { user: await service.updateUser(current.id, body) };
+    const user = await service.createUser(body);
+    await auth.start(ctx, 'user', user.id);
     ctx.status = 201;
     return { user };
   });
-  router.get('/api/me', (ctx) => ({ user: auth.user(ctx) }));
-  router.patch('/api/me', async (ctx) => ({ user: service.updateUser(requireUser(ctx).id, await ctx.body()) }));
+  router.get('/api/me', async (ctx) => ({ user: await auth.user(ctx) }));
+  router.patch('/api/me', async (ctx) => {
+    const user = await requireUser(ctx);
+    return { user: await service.updateUser(user.id, await ctx.body()) };
+  });
   router.post('/api/auth/logout', async (ctx) => {
     await ctx.body();
-    auth.end(ctx, 'user');
+    await auth.end(ctx, 'user');
     return { ok: true };
   });
 
-  router.get('/api/bookings', (ctx) => ({ bookings: service.bookingsOf(requireUser(ctx).id) }));
+  router.get('/api/bookings', async (ctx) => ({ bookings: await service.bookingsOf((await requireUser(ctx)).id) }));
   router.post('/api/bookings', async (ctx) => {
-    const user = requireUser(ctx);
+    const user = await requireUser(ctx);
     limit('booking', ctx);
-    const booking = service.createBooking(user, await ctx.body());
-    void notifier.send(bookingMessage(booking, user, ctx.origin));
+    const booking = await service.createBooking(user, await ctx.body());
+    await notify(bookingMessage(booking, user, ctx.origin));
     ctx.status = 201;
     return { booking };
   });
   router.post('/api/bookings/:id/cancel', async (ctx) => {
-    const user = requireUser(ctx);
+    const user = await requireUser(ctx);
     await ctx.body();
-    const { booking, changed } = service.cancelBooking(user.id, idParam(ctx.params.id));
-    if (changed) void notifier.send(`Bron #${booking.id} mijoz tomonidan bekor qilindi.\n${user.name}, ${user.phone}`);
+    const { booking, changed } = await service.cancelBooking(user.id, idParam(ctx.params.id));
+    if (changed) await notify(`Bron #${booking.id} mijoz tomonidan bekor qilindi.\n${user.name}, ${user.phone}`);
     return { booking };
   });
 
@@ -105,38 +110,38 @@ export function createApp({ config, service, auth, notifier, log }) {
     limit('adminLogin', ctx);
     const { password } = await ctx.body();
     if (!auth.checkAdminPassword(password)) throw new HttpError(401, 'bad_password', 'Parol noto‘g‘ri.');
-    auth.start(ctx, 'admin');
+    await auth.start(ctx, 'admin');
     return { ok: true };
   });
   router.post('/api/admin/logout', async (ctx) => {
     await ctx.body();
-    auth.end(ctx, 'admin');
+    await auth.end(ctx, 'admin');
     return { ok: true };
   });
-  router.get('/api/admin/me', (ctx) => ({ admin: auth.isAdmin(ctx) }));
-  router.get('/api/admin/bookings', (ctx) => {
-    requireAdmin(ctx);
-    return { bookings: service.adminBookings({ status: ctx.query.get('status') }) };
+  router.get('/api/admin/me', async (ctx) => ({ admin: await auth.isAdmin(ctx) }));
+  router.get('/api/admin/bookings', async (ctx) => {
+    await requireAdmin(ctx);
+    return { bookings: await service.adminBookings({ status: ctx.query.get('status') }) };
   });
   router.post('/api/admin/bookings/:id/status', async (ctx) => {
-    requireAdmin(ctx);
+    await requireAdmin(ctx);
     const { status } = await ctx.body();
-    return { booking: service.setBookingStatus(idParam(ctx.params.id), status) };
+    return { booking: await service.setBookingStatus(idParam(ctx.params.id), status) };
   });
-  router.get('/api/admin/lots', (ctx) => {
-    requireAdmin(ctx);
-    return { lots: service.adminLots(), now: service.now() };
+  router.get('/api/admin/lots', async (ctx) => {
+    await requireAdmin(ctx);
+    return { lots: await service.adminLots(), now: service.now() };
   });
   router.put('/api/admin/lots/:id', async (ctx) => {
-    requireAdmin(ctx);
-    return { lot: service.upsertLot(ctx.params.id, await ctx.body()) };
+    await requireAdmin(ctx);
+    return { lot: await service.upsertLot(ctx.params.id, await ctx.body()) };
   });
   router.post('/api/admin/lots/:id/blocks', async (ctx) => {
-    requireAdmin(ctx);
+    await requireAdmin(ctx);
     return service.setBlock(ctx.params.id, await ctx.body());
   });
-  router.get('/api/admin/stats', (ctx) => {
-    requireAdmin(ctx);
+  router.get('/api/admin/stats', async (ctx) => {
+    await requireAdmin(ctx);
     return service.stats();
   });
 
@@ -239,8 +244,10 @@ export function createApp({ config, service, auth, notifier, log }) {
         sendJson(res, 500, { error: { code: 'internal', message: 'Serverda xato. Birozdan keyin qayta urinib ko‘ring.' } });
       }
     } finally {
-      if (isApi) {
-        log.info('request', { method: req.method, path: url.pathname, status: res.statusCode, ms: Math.round(performance.now() - started) });
+      // O'zgartiruvchi so'rovlar, xatolar va sekin javoblar yoziladi; muntazam GET (xarita yangilanishi) — yo'q
+      const ms = Math.round(performance.now() - started);
+      if (isApi && (req.method !== 'GET' || res.statusCode >= 400 || ms > 1000)) {
+        log.info('request', { method: req.method, path: url.pathname, status: res.statusCode, ms });
       }
     }
   };

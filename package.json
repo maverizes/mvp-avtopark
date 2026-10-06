@@ -9,7 +9,10 @@
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning server/index.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch-path=server --watch-path=shared server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch-path=server --watch-path=public/shared server/index.js",
     "test": "node --disable-warning=ExperimentalWarning --test 'test/**/*.test.js'"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0"
   }
 }

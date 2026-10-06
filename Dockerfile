@@ -1,4 +1,4 @@
-# JoyBor — bitta konteyner: Node 24 (ichida SQLite). npm paketlari yo'q.
+# JoyBor — bitta konteyner: Node 24 (ichida SQLite). Baza: ./data dagi fayl yoki Turso.
 FROM node:24-alpine
 
 ENV NODE_ENV=production \
@@ -6,9 +6,10 @@ ENV NODE_ENV=production \
     DB_PATH=/app/data/joybor.db
 
 WORKDIR /app
-COPY package.json ./
+COPY package.json package-lock.json ./
+# Turso ulansa kerak bo'ladigan mijoz (lokal SQLite uchun paket kerak emas)
+RUN npm ci --omit=dev && npm cache clean --force
 COPY server ./server
-COPY shared ./shared
 COPY public ./public
 COPY seed ./seed
 

@@ -10,17 +10,20 @@ const KINDS = {
   admin: { cookie: 'jb_admin', ttlMs: 12 * 3_600_000, sameSite: 'Strict' }
 };
 
+const SQL = {
+  insert: 'INSERT INTO sessions (token_hash, kind, user_id, expires_at) VALUES (?, ?, ?, ?)',
+  select: `
+    SELECT s.user_id AS userId, u.name, u.phone
+    FROM sessions s LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.token_hash = ? AND s.kind = ? AND s.expires_at > ?`,
+  remove: 'DELETE FROM sessions WHERE token_hash = ?',
+  purge: 'DELETE FROM sessions WHERE expires_at <= ?'
+};
+
 const sha256 = (s) => createHash('sha256').update(s).digest();
 const hashToken = (t) => sha256(t).toString('hex');
 
 export function createAuth(db, config) {
-  const insert = db.prepare('INSERT INTO sessions (token_hash, kind, user_id, expires_at) VALUES (?, ?, ?, ?)');
-  const select = db.prepare(`
-    SELECT s.user_id AS userId, u.name, u.phone
-    FROM sessions s LEFT JOIN users u ON u.id = s.user_id
-    WHERE s.token_hash = ? AND s.kind = ? AND s.expires_at > ?`);
-  const remove = db.prepare('DELETE FROM sessions WHERE token_hash = ?');
-  const purge = db.prepare('DELETE FROM sessions WHERE expires_at <= ?');
   const adminHash = sha256(config.adminPassword);
 
   const tokenFrom = (ctx, kind) => {
@@ -28,31 +31,35 @@ export function createAuth(db, config) {
     return typeof t === 'string' && /^[\w-]{43}$/.test(t) ? t : null;
   };
 
+  const purgeExpired = async () => (await db.run(SQL.purge, [new Date().toISOString()])).changes;
+
   return {
     /** Yangi sessiya; cookie javobga qo'shiladi */
-    start(ctx, kind, userId = null) {
+    async start(ctx, kind, userId = null) {
       const { cookie, ttlMs, sameSite } = KINDS[kind];
       const token = randomBytes(32).toString('base64url');
-      insert.run(hashToken(token), kind, userId, new Date(Date.now() + ttlMs).toISOString());
+      await db.run(SQL.insert, [hashToken(token), kind, userId, new Date(Date.now() + ttlMs).toISOString()]);
       ctx.setCookie(serializeCookie(cookie, token, { maxAge: ttlMs / 1000, secure: ctx.secure, sameSite }));
+      // Serverless'da taymer yo'q — eskirgan sessiyalar vaqti-vaqti bilan shu yerda tozalanadi
+      if (Math.random() < 0.02) await purgeExpired().catch(() => {});
     },
 
     /** Foydalanuvchi sessiyasi: { id, name, phone } | null */
-    user(ctx) {
+    async user(ctx) {
       const token = tokenFrom(ctx, 'user');
       if (!token) return null;
-      const row = select.get(hashToken(token), 'user', new Date().toISOString());
+      const row = await db.get(SQL.select, [hashToken(token), 'user', new Date().toISOString()]);
       return row && row.userId ? { id: row.userId, name: row.name, phone: row.phone } : null;
     },
 
-    isAdmin(ctx) {
+    async isAdmin(ctx) {
       const token = tokenFrom(ctx, 'admin');
-      return !!token && !!select.get(hashToken(token), 'admin', new Date().toISOString());
+      return !!token && !!(await db.get(SQL.select, [hashToken(token), 'admin', new Date().toISOString()]));
     },
 
-    end(ctx, kind) {
+    async end(ctx, kind) {
       const token = tokenFrom(ctx, kind);
-      if (token) remove.run(hashToken(token));
+      if (token) await db.run(SQL.remove, [hashToken(token)]);
       const { cookie, sameSite } = KINDS[kind];
       ctx.setCookie(serializeCookie(cookie, '', { maxAge: 0, secure: ctx.secure, sameSite }));
     },
@@ -62,8 +69,6 @@ export function createAuth(db, config) {
       return typeof input === 'string' && input.length <= 200 && timingSafeEqual(sha256(input), adminHash);
     },
 
-    purgeExpired() {
-      return purge.run(new Date().toISOString()).changes;
-    }
+    purgeExpired
   };
 }

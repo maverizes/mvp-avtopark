@@ -1,5 +1,5 @@
 // Sana va vaqt: hammasi mahalliy vaqtda (Toshkent), sanalar 'YYYY-MM-DD' satr ko'rinishida.
-import { PERIODS, periodAt, toMin } from '../shared/scenarios.js';
+import { PERIODS, periodAt, toMin } from '../public/shared/scenarios.js';
 
 const DAY_MS = 86_400_000;
 

@@ -1,6 +1,6 @@
 // Sayt matnlari va sozlamalari.
 // Turargohlar, narxlar va bandlik operator panelida (/admin) boshqariladi — bu yerda emas.
-// Joy turlari: shared/scenarios.js
+// Joy turlari: public/shared/scenarios.js
 
 export const CONFIG = {
   brand: 'JoyBor',

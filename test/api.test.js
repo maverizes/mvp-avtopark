@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
-import { fileURLToPath } from 'node:url';
+import seedLots from '../seed/lots.json' with { type: 'json' };
 import { createApp } from '../server/app.js';
 import { createAuth } from '../server/auth.js';
 import { openDb, seedIfEmpty } from '../server/db.js';
@@ -11,22 +13,44 @@ import { createService } from '../server/service.js';
 import { addMonths, endDateFor, localNow, periodDate } from '../server/time.js';
 import { normalizeName, normalizePhone, normalizePlate } from '../server/validate.js';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Qotirilgan vaqt: 2026-10-06, Toshkentda 10:00 (kunduzgi davr)
 const CLOCK = Date.parse('2026-10-06T05:00:00Z');
 const ADMIN_PASSWORD = 'test-admin-password';
 
-async function startApp() {
-  const db = openDb(':memory:');
-  seedIfEmpty(db, { demo: true, seedFile: path.join(ROOT, 'seed/lots.json') });
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'joybor-test-'));
+after(() => fs.rmSync(TMP, { recursive: true, force: true }));
+
+// Bir xil testlar ikki bazada: lokal SQLite va libSQL (Vercel'dagi Turso bilan bir xil mijoz)
+const hasLibsql = await import('@libsql/client').then(() => true, () => false);
+const ADAPTERS = [{ name: 'lokal SQLite', db: {} }];
+if (hasLibsql) ADAPTERS.push({ name: 'libSQL (Turso mijozi)', db: { url: `file:${path.join(TMP, 'api.db')}` } });
+
+async function startApp(adapter) {
+  const db = await openDb({ dbPath: ':memory:', db: adapter.db });
+  await seedIfEmpty(db, { demo: true, lots: seedLots });
   const config = { adminPassword: ADMIN_PASSWORD, publicOrigin: '', trustProxy: false, cookieSecure: false };
   const service = createService(db, { tzOffsetMinutes: 300, clock: () => CLOCK });
   const auth = createAuth(db, config);
   const sent = [];
   const notifier = { enabled: true, send: async (text) => sent.push(text) };
-  const server = http.createServer(createApp({ config, service, auth, notifier, log: silentLog }));
+  const server = http.createServer(createApp({ config, service, auth, notifier, log: silentLog, dbKind: db.kind }));
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { db, sent, base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => server.close(r)) };
+  return {
+    db,
+    sent,
+    base: `http://127.0.0.1:${server.address().port}`,
+    close: async () => {
+      await new Promise((r) => server.close(r));
+      await db.close();
+    }
+  };
+}
+
+/** Ilovani ishga tushirmasdan, faqat HTTP server: Vercel funksiyasini sinash uchun */
+async function serve(handler) {
+  const server = http.createServer(handler);
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return { base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => server.close(r)) };
 }
 
 /** Cookie'larni eslab qoladigan oddiy mijoz */
@@ -91,10 +115,10 @@ describe('yordamchilar', () => {
   });
 });
 
-describe('API', () => {
+for (const adapter of ADAPTERS) describe(`API — ${adapter.name}`, () => {
   let app;
   before(async () => {
-    app = await startApp();
+    app = await startApp(adapter);
   });
   after(() => app.close());
 
@@ -281,5 +305,58 @@ describe('API', () => {
     }
     assert.equal((await call('GET', '/api/yoq')).status, 404);
     assert.equal((await call('DELETE', '/api/lots')).status, 405);
+  });
+});
+
+describe('Vercel funksiyasi (api/index.js)', () => {
+  const saved = { ...process.env };
+  const setEnv = (vars) => {
+    for (const k of ['VERCEL', 'NODE_ENV', 'ADMIN_PASSWORD', 'TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN', 'DATABASE_URL', 'SEED_DEMO']) delete process.env[k];
+    Object.assign(process.env, vars);
+  };
+  after(() => {
+    for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
+    Object.assign(process.env, saved);
+  });
+
+  test('baza ulanmagan bo‘lsa — sababini aytadi (503), yiqilmaydi', async () => {
+    setEnv({ VERCEL: '1', NODE_ENV: 'production', ADMIN_PASSWORD: 'vercel-test-password' });
+    const { default: handler } = await import('../api/index.js?case=no-db');
+    const srv = await serve(handler);
+    const res = await fetch(`${srv.base}/api/health`);
+    const body = await res.json();
+    await srv.close();
+    assert.equal(res.status, 503);
+    assert.match(body.error.message, /TURSO_DATABASE_URL/);
+  });
+
+  test('parol yo‘q bo‘lsa — sababini aytadi', async () => {
+    setEnv({ VERCEL: '1', NODE_ENV: 'production', TURSO_DATABASE_URL: 'file:/dev/null' });
+    const { default: handler } = await import('../api/index.js?case=no-password');
+    const srv = await serve(handler);
+    const body = await (await fetch(`${srv.base}/api/lots`)).json();
+    await srv.close();
+    assert.match(body.error.message, /ADMIN_PASSWORD/);
+  });
+
+  test('Turso (libSQL) bilan ishlaydi: ro‘yxatdan o‘tish va bron', { skip: !hasLibsql && '@libsql/client o‘rnatilmagan' }, async () => {
+    setEnv({ VERCEL: '1', NODE_ENV: 'production', ADMIN_PASSWORD: 'vercel-test-password', TURSO_DATABASE_URL: `file:${path.join(TMP, 'vercel.db')}`, SEED_DEMO: 'true' });
+    const { default: handler } = await import('../api/index.js?case=ok');
+    const srv = await serve(handler);
+    const call = client(srv.base);
+    try {
+      const health = await call('GET', '/api/health');
+      assert.deepEqual(health.data, { ok: true, db: 'libsql-file', telegram: false });
+      const reg = await call('POST', '/api/auth/register', { name: 'Vercel', phone: '901112233' }, { origin: srv.base });
+      assert.equal(reg.status, 201);
+      assert.match(reg.headers.get('set-cookie'), /; Secure/, 'serverless — https cookie');
+      const lots = (await call('GET', '/api/lots')).data.lots;
+      const lot = lots.find((l) => l.id === 'demo-dokon');
+      const booking = await call('POST', '/api/bookings', { scenarioId: 'kunduzgi', lotId: lot.id }, { origin: srv.base });
+      assert.equal(booking.status, 201);
+      assert.equal(booking.data.booking.lotId, 'demo-dokon');
+    } finally {
+      await srv.close();
+    }
   });
 });

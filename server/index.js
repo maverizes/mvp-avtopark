@@ -1,18 +1,15 @@
-// Kirish nuqtasi: sozlamalar -> baza -> HTTP server. SIGTERM'da toza to'xtaydi.
+// Lokal/VPS server: sozlamalar -> ilova -> HTTP. SIGTERM'da toza to'xtaydi.
+// Vercel'da bu fayl ishlatilmaydi — u yerda api/index.js.
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createApp } from './app.js';
-import { createAuth } from './auth.js';
+import { createRuntime } from './bootstrap.js';
 import { loadConfig } from './config.js';
-import { openDb, seedIfEmpty } from './db.js';
 import { log } from './log.js';
-import { createNotifier } from './notify.js';
-import { createService } from './service.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// .env bo'lsa — o'qiymiz (Docker'da o'zgaruvchilar tashqaridan beriladi)
+// .env bo'lsa — o'qiymiz (tashqaridan berilgan o'zgaruvchilar ustun)
 try {
   process.loadEnvFile(path.join(ROOT, '.env'));
 } catch {
@@ -20,27 +17,24 @@ try {
 }
 
 let config;
+let runtime;
 try {
   config = loadConfig();
+  runtime = await createRuntime(config, log);
 } catch (err) {
-  log.error('config_error', { error: err.message });
+  log.error('startup_failed', { error: err.message });
   process.exit(1);
 }
 
-const db = openDb(config.dbPath);
-const seeded = seedIfEmpty(db, { demo: config.seedDemo, seedFile: path.join(ROOT, 'seed/lots.json') });
-if (seeded) log.info('seeded', { lots: seeded, demo: config.seedDemo });
-
-const service = createService(db, config);
-const auth = createAuth(db, config);
-const notifier = createNotifier(config.telegram, log);
-const server = http.createServer(createApp({ config, service, auth, notifier, log }));
+const server = http.createServer(runtime.handler);
 server.headersTimeout = 15_000;
 server.requestTimeout = 30_000;
 server.keepAliveTimeout = 5_000;
 
 server.listen(config.port, config.host, () => {
-  log.info('listening', { port: config.port, production: config.production, telegram: notifier.enabled, db: config.dbPath });
+  log.info('listening', {
+    port: config.port, production: config.production, db: runtime.db.kind, telegram: runtime.notifier.enabled
+  });
   if (config.generatedAdminPassword) {
     process.stdout.write(`\n  Operator paneli: http://localhost:${config.port}/admin\n`
       + `  Vaqtinchalik parol: ${config.adminPassword}\n`
@@ -48,7 +42,7 @@ server.listen(config.port, config.host, () => {
   }
 });
 
-const purge = setInterval(() => auth.purgeExpired(), 3_600_000);
+const purge = setInterval(() => runtime.auth.purgeExpired().catch(() => {}), 3_600_000);
 purge.unref();
 
 let stopping = false;
@@ -56,8 +50,8 @@ function shutdown(signal) {
   if (stopping) return;
   stopping = true;
   log.info('shutdown', { signal });
-  server.close(() => {
-    db.close();
+  server.close(async () => {
+    await runtime.db.close();
     process.exit(0);
   });
   server.closeIdleConnections();

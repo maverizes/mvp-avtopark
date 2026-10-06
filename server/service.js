@@ -1,6 +1,6 @@
 // Biznes-mantiq: turargohlar, bandlik, bronlar, operator amallari.
-import { PERIODS, SCENARIOS, scenarioById } from '../shared/scenarios.js';
-import { lotFromRow, tx } from './db.js';
+import { PERIODS, SCENARIOS, scenarioById } from '../public/shared/scenarios.js';
+import { lotFromRow } from './db.js';
 import { addDays, endDateFor, isDate, localNow, periodDate } from './time.js';
 import {
   HttpError, cleanText, collector, isSlug, isSpotId, isTime, normalizeName, normalizePhone, normalizePlate
@@ -15,6 +15,41 @@ const MAX_SPOTS = 300;
 
 const isActiveStatus = (s) => ACTIVE_STATUSES.includes(s);
 const flatSpots = (lot) => (lot.rows ? lot.rows.flat() : []);
+
+const SQL = {
+  lotsActive: 'SELECT * FROM lots WHERE is_active = 1 ORDER BY sort, title',
+  lotsAll: 'SELECT * FROM lots ORDER BY sort, title',
+  lot: 'SELECT * FROM lots WHERE id = ?',
+  blocksAll: 'SELECT lot_id, spot, period FROM blocks',
+  blocksFor: 'SELECT spot FROM blocks WHERE lot_id = ? AND period = ?',
+  // Shu sanani qamrab olgan faol bronlar
+  activeOn: `
+    SELECT id, lot_id, spot, period FROM bookings
+    WHERE status IN ('pending', 'confirmed') AND lot_id IS NOT NULL
+      AND period = ? AND start_date <= ? AND end_date >= ?`,
+  // Muddati kesishgan faol bronlar: (start <= yangi_end) va (end >= yangi_start)
+  overlapping: `
+    SELECT id, spot FROM bookings
+    WHERE lot_id = ? AND period = ? AND status IN ('pending', 'confirmed')
+      AND start_date <= ? AND end_date >= ? AND id != ?`,
+  userActiveCount: `
+    SELECT COUNT(*) AS n FROM bookings
+    WHERE user_id = ? AND status IN ('pending', 'confirmed') AND end_date >= ?`,
+  insertBooking: `
+    INSERT INTO bookings (user_id, scenario_id, lot_id, spot, period, start_date, end_date, qty,
+                          time_from, time_to, cars, plate, address, note, price)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  bookingSelect: `
+    SELECT b.*, l.title AS lot_title, l.address AS lot_address, l.lat AS lot_lat, l.lng AS lot_lng,
+           u.name AS user_name, u.phone AS user_phone
+    FROM bookings b
+    LEFT JOIN lots l ON l.id = b.lot_id
+    JOIN users u ON u.id = b.user_id`,
+  setStatus: 'UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?',
+  insertUser: 'INSERT INTO users (name, phone) VALUES (?, ?)',
+  updateUser: 'UPDATE users SET name = ?, phone = ? WHERE id = ?',
+  userById: 'SELECT id, name, phone FROM users WHERE id = ?'
+};
 
 function bookingDto(r) {
   return {
@@ -43,55 +78,21 @@ function bookingDto(r) {
   };
 }
 
-const BOOKING_SELECT = `
-  SELECT b.*, l.title AS lot_title, l.address AS lot_address, l.lat AS lot_lat, l.lng AS lot_lng,
-         u.name AS user_name, u.phone AS user_phone
-  FROM bookings b
-  LEFT JOIN lots l ON l.id = b.lot_id
-  JOIN users u ON u.id = b.user_id`;
+const adminDto = (r) => ({ ...bookingDto(r), userName: r.user_name, userPhone: r.user_phone });
+const userDto = (r) => (r ? { id: r.id, name: r.name, phone: r.phone } : null);
 
 export function createService(db, { tzOffsetMinutes, clock = () => Date.now() }) {
   const now = () => localNow(tzOffsetMinutes, clock());
   const nowIso = () => new Date(clock()).toISOString();
 
-  const q = {
-    lotsActive: db.prepare('SELECT * FROM lots WHERE is_active = 1 ORDER BY sort, title'),
-    lotsAll: db.prepare('SELECT * FROM lots ORDER BY sort, title'),
-    lot: db.prepare('SELECT * FROM lots WHERE id = ?'),
-    blocksAll: db.prepare('SELECT lot_id, spot, period FROM blocks'),
-    blocksFor: db.prepare('SELECT spot FROM blocks WHERE lot_id = ? AND period = ?'),
-    // Shu sanani qamrab olgan faol bronlar
-    activeOn: db.prepare(`
-      SELECT id, lot_id, spot, period FROM bookings
-      WHERE status IN ('pending', 'confirmed') AND lot_id IS NOT NULL
-        AND period = ? AND start_date <= ? AND end_date >= ?`),
-    // Muddati kesishgan faol bronlar: (start <= yangi_end) va (end >= yangi_start)
-    overlapping: db.prepare(`
-      SELECT id, spot FROM bookings
-      WHERE lot_id = ? AND period = ? AND status IN ('pending', 'confirmed')
-        AND start_date <= ? AND end_date >= ? AND id != ?`),
-    userActiveCount: db.prepare(`
-      SELECT COUNT(*) AS n FROM bookings
-      WHERE user_id = ? AND status IN ('pending', 'confirmed') AND end_date >= ?`),
-    insertBooking: db.prepare(`
-      INSERT INTO bookings (user_id, scenario_id, lot_id, spot, period, start_date, end_date, qty,
-                            time_from, time_to, cars, plate, address, note, price)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-    bookingById: db.prepare(`${BOOKING_SELECT} WHERE b.id = ?`),
-    bookingsOfUser: db.prepare(`${BOOKING_SELECT} WHERE b.user_id = ? ORDER BY b.id DESC LIMIT 50`),
-    setStatus: db.prepare('UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?'),
-    insertUser: db.prepare('INSERT INTO users (name, phone) VALUES (?, ?)'),
-    updateUser: db.prepare('UPDATE users SET name = ?, phone = ? WHERE id = ?'),
-    userById: db.prepare('SELECT id, name, phone FROM users WHERE id = ?')
-  };
-
-  const getLot = (id) => {
-    const row = isSlug(id) ? q.lot.get(id) : null;
+  const getLot = async (id, t = db) => {
+    const row = isSlug(id) ? await t.get(SQL.lot, [id]) : null;
     return row ? lotFromRow(row) : null;
   };
+  const bookingById = (id, t = db) => t.get(`${SQL.bookingSelect} WHERE b.id = ?`, [id]);
 
   /** Davr bo'yicha band joylar va joysiz bronlar soni: Map<lotId, {busy:{night,day}, taken:{night,day}}> */
-  function occupancy(at) {
+  async function occupancy(at) {
     const map = new Map();
     const entry = (id) => {
       if (!map.has(id)) map.set(id, { busy: { night: new Set(), day: new Set() }, taken: { night: 0, day: 0 } });
@@ -99,12 +100,12 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
     };
     for (const period of Object.keys(PERIODS)) {
       const date = periodDate(period, at);
-      for (const b of q.activeOn.all(period, date, date)) {
+      for (const b of await db.all(SQL.activeOn, [period, date, date])) {
         if (b.spot) entry(b.lot_id).busy[period].add(b.spot);
         else entry(b.lot_id).taken[period] += 1;
       }
     }
-    for (const b of q.blocksAll.all()) entry(b.lot_id).busy[b.period].add(b.spot);
+    for (const b of await db.all(SQL.blocksAll)) entry(b.lot_id).busy[b.period].add(b.spot);
     return map;
   }
 
@@ -140,29 +141,29 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
     return { name, phone };
   }
 
-  function createUser(input) {
+  async function createUser(input) {
     const { name, phone } = validateProfile(input);
-    const { lastInsertRowid } = q.insertUser.run(name, phone);
-    return q.userById.get(Number(lastInsertRowid));
+    const { lastInsertRowid } = await db.run(SQL.insertUser, [name, phone]);
+    return userDto(await db.get(SQL.userById, [lastInsertRowid]));
   }
 
-  function updateUser(userId, input) {
+  async function updateUser(userId, input) {
     const { name, phone } = validateProfile(input);
-    q.updateUser.run(name, phone, userId);
-    return q.userById.get(userId);
+    await db.run(SQL.updateUser, [name, phone, userId]);
+    return userDto(await db.get(SQL.userById, [userId]));
   }
 
   // ---------- Bronlar ----------
 
   /** Muddat ichida band joylar (bronlar + operator belgilari) */
-  function takenSpots(lotId, period, start, end, exceptId = 0) {
-    const rows = q.overlapping.all(lotId, period, end, start, exceptId);
+  async function takenSpots(t, lotId, period, start, end, exceptId = 0) {
+    const rows = await t.all(SQL.overlapping, [lotId, period, end, start, exceptId]);
     const spots = new Set(rows.filter((r) => r.spot).map((r) => r.spot));
-    for (const b of q.blocksFor.all(lotId, period)) spots.add(b.spot);
+    for (const b of await t.all(SQL.blocksFor, [lotId, period])) spots.add(b.spot);
     return { spots, unassigned: rows.filter((r) => !r.spot).length };
   }
 
-  function createBooking(user, input) {
+  async function createBooking(user, input) {
     const c = collector();
     const scenario = scenarioById(input.scenarioId);
     if (!scenario) throw new HttpError(422, 'validation', 'Joy turini tanlang', { scenarioId: 'Joy turini tanlang.' });
@@ -177,14 +178,14 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
 
     let lot = null;
     if (input.lotId != null && input.lotId !== '') {
-      lot = getLot(input.lotId);
+      lot = await getLot(input.lotId);
       if (!lot || !lot.isActive) throw new HttpError(404, 'lot_not_found', 'Turargoh topilmadi yoki yopilgan.');
     }
 
     // Faol tur + turargoh — aniq joy ushlab turiladi; aks holda umumiy so'rov
     const isSpotBooking = !!lot && scenario.active && !!scenario.period;
 
-    if (q.userActiveCount.get(user.id, today).n >= MAX_ACTIVE_PER_USER) {
+    if ((await db.get(SQL.userActiveCount, [user.id, today])).n >= MAX_ACTIVE_PER_USER) {
       throw new HttpError(409, 'too_many', `Bir vaqtda ${MAX_ACTIVE_PER_USER} tadan ortiq faol bron bo‘lmaydi. Keraksizini bekor qiling.`);
     }
 
@@ -205,8 +206,9 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
       const unitPrice = lot.prices?.[scenario.id];
       const price = Number.isInteger(unitPrice) ? unitPrice * qty : null;
 
-      const id = tx(db, () => {
-        const taken = takenSpots(lot.id, scenario.period, start, end);
+      // Tekshiruv va yozish bitta tranzaksiyada: bitta joyni ikki kishi ola olmaydi
+      const id = await db.tx(async (t) => {
+        const taken = await takenSpots(t, lot.id, scenario.period, start, end);
         let spot = null;
         if (spots.length) {
           spot = wanted ?? spots.find((s) => !taken.spots.has(s)) ?? null;
@@ -215,10 +217,11 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
         } else if (Number.isInteger(lot.slots) && taken.unassigned >= lot.slots) {
           throw new HttpError(409, 'lot_full', 'Bu muddatga bo‘sh joy qolmagan. Boshqa turargohni tanlang.');
         }
-        return Number(q.insertBooking.run(user.id, scenario.id, lot.id, spot, scenario.period, start, end, qty,
-          null, null, null, plate, address, note, price).lastInsertRowid);
+        const r = await t.run(SQL.insertBooking, [user.id, scenario.id, lot.id, spot, scenario.period, start, end, qty,
+          null, null, null, plate, address, note, price]);
+        return r.lastInsertRowid;
       });
-      return bookingDto(q.bookingById.get(id));
+      return bookingDto(await bookingById(id));
     }
 
     // Umumiy so'rov: hamma maydonlar ixtiyoriy, faqat formati tekshiriladi
@@ -239,61 +242,60 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
 
     // period = NULL: so'rov joy ushlab turmaydi va sig'imni egallamaydi
     const start = date || today;
-    const id = Number(q.insertBooking.run(user.id, scenario.id, lot?.id ?? null, null, null,
-      start, start, 1, timeFrom, timeTo, cars, plate, address, note, null).lastInsertRowid);
-    return bookingDto(q.bookingById.get(id));
+    const { lastInsertRowid } = await db.run(SQL.insertBooking, [user.id, scenario.id, lot?.id ?? null, null, null,
+      start, start, 1, timeFrom, timeTo, cars, plate, address, note, null]);
+    return bookingDto(await bookingById(lastInsertRowid));
   }
 
-  function bookingsOf(userId) {
-    return q.bookingsOfUser.all(userId).map(bookingDto);
+  async function bookingsOf(userId) {
+    return (await db.all(`${SQL.bookingSelect} WHERE b.user_id = ? ORDER BY b.id DESC LIMIT 50`, [userId])).map(bookingDto);
   }
 
   /** @returns {{ booking, changed: boolean }} — qayta bosilsa ham xato bermaydi */
-  function cancelBooking(userId, id) {
-    const row = Number.isInteger(id) ? q.bookingById.get(id) : null;
+  async function cancelBooking(userId, id) {
+    const row = Number.isInteger(id) ? await bookingById(id) : null;
     if (!row || row.user_id !== userId) throw new HttpError(404, 'not_found', 'Bron topilmadi.');
     const changed = isActiveStatus(row.status);
-    if (changed) q.setStatus.run('cancelled', nowIso(), id);
-    return { booking: bookingDto(q.bookingById.get(id)), changed };
+    if (changed) await db.run(SQL.setStatus, ['cancelled', nowIso(), id]);
+    return { booking: bookingDto(await bookingById(id)), changed };
   }
 
   // ---------- Operator ----------
 
-  function adminBookings({ status, limit = 300 }) {
-    const where = STATUSES.includes(status) ? 'WHERE b.status = ?' : '';
-    const stmt = db.prepare(`${BOOKING_SELECT} ${where} ORDER BY b.id DESC LIMIT ?`);
-    const rows = where ? stmt.all(status, limit) : stmt.all(limit);
-    return rows.map((r) => ({ ...bookingDto(r), userName: r.user_name, userPhone: r.user_phone }));
+  async function adminBookings({ status, limit = 300 }) {
+    const rows = STATUSES.includes(status)
+      ? await db.all(`${SQL.bookingSelect} WHERE b.status = ? ORDER BY b.id DESC LIMIT ?`, [status, limit])
+      : await db.all(`${SQL.bookingSelect} ORDER BY b.id DESC LIMIT ?`, [limit]);
+    return rows.map(adminDto);
   }
 
-  function setBookingStatus(id, status) {
+  async function setBookingStatus(id, status) {
     if (!STATUSES.includes(status)) throw new HttpError(422, 'validation', 'Holat noto‘g‘ri.');
-    return tx(db, () => {
-      const row = Number.isInteger(id) ? q.bookingById.get(id) : null;
+    return db.tx(async (t) => {
+      const row = Number.isInteger(id) ? await bookingById(id, t) : null;
       if (!row) throw new HttpError(404, 'not_found', 'Bron topilmadi.');
       // Bekor qilingan bronni qayta faollashtirishda joy hali bo'shmi, tekshiramiz
       if (isActiveStatus(status) && !isActiveStatus(row.status) && row.spot) {
-        const taken = takenSpots(row.lot_id, row.period, row.start_date, row.end_date, row.id);
+        const taken = await takenSpots(t, row.lot_id, row.period, row.start_date, row.end_date, row.id);
         if (taken.spots.has(row.spot)) throw new HttpError(409, 'spot_taken', 'Bu joy shu muddatda boshqa bronga berilgan.');
       }
-      q.setStatus.run(status, nowIso(), id);
-      const updated = q.bookingById.get(id);
-      return { ...bookingDto(updated), userName: updated.user_name, userPhone: updated.user_phone };
+      await t.run(SQL.setStatus, [status, nowIso(), id]);
+      return adminDto(await bookingById(id, t));
     });
   }
 
-  function adminLots() {
+  async function adminLots() {
     const at = now();
-    const occ = occupancy(at);
+    const occ = await occupancy(at);
     const booked = { night: new Map(), day: new Map() };
     for (const period of Object.keys(PERIODS)) {
       const date = periodDate(period, at);
-      for (const b of q.activeOn.all(period, date, date)) {
+      for (const b of await db.all(SQL.activeOn, [period, date, date])) {
         if (b.spot) booked[period].set(`${b.lot_id}/${b.spot}`, b.id);
       }
     }
-    const blocks = q.blocksAll.all();
-    return q.lotsAll.all().map(lotFromRow).map((lot) => ({
+    const blocks = await db.all(SQL.blocksAll);
+    return (await db.all(SQL.lotsAll)).map(lotFromRow).map((lot) => ({
       ...lot,
       blocks: {
         night: blocks.filter((b) => b.lot_id === lot.id && b.period === 'night').map((b) => b.spot),
@@ -353,54 +355,54 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
     };
   }
 
-  function upsertLot(id, input) {
+  async function upsertLot(id, input) {
     const v = validateLot(id, input);
-    return tx(db, () => {
-      const existing = getLot(id);
+    return db.tx(async (t) => {
+      const existing = await getLot(id, t);
       if (existing && existing.rows) {
         // Sxemadan olib tashlanayotgan joyda faol bron bo'lsa — ruxsat yo'q
         const keep = new Set(v.rows ? v.rows.flat() : []);
         const removed = flatSpots(existing).filter((s) => !keep.has(s));
         if (removed.length) {
           const marks = removed.map(() => '?').join(',');
-          const busy = db.prepare(`
+          const busy = (await t.all(`
             SELECT DISTINCT spot FROM bookings
-            WHERE lot_id = ? AND status IN ('pending', 'confirmed') AND end_date >= ? AND spot IN (${marks})`)
-            .all(id, now().date, ...removed).map((r) => r.spot);
+            WHERE lot_id = ? AND status IN ('pending', 'confirmed') AND end_date >= ? AND spot IN (${marks})`,
+          [id, now().date, ...removed])).map((r) => r.spot);
           if (busy.length) throw new HttpError(409, 'spot_has_bookings', `Bu joylarda faol bron bor: ${busy.join(', ')}. Avval bronlarni yakunlang.`);
-          db.prepare(`DELETE FROM blocks WHERE lot_id = ? AND spot IN (${marks})`).run(id, ...removed);
+          await t.run(`DELETE FROM blocks WHERE lot_id = ? AND spot IN (${marks})`, [id, ...removed]);
         }
       }
       // Berilmagan bo'lsa — tartib va namuna belgisi o'zgarmaydi
-      const sort = v.sort ?? existing?.sort ?? db.prepare('SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM lots').get().n;
+      const sort = v.sort ?? existing?.sort ?? (await t.get('SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM lots')).n;
       const isDemo = v.isDemo ?? existing?.isDemo ?? false;
-      db.prepare(`
+      await t.run(`
         INSERT INTO lots (id, title, address, lat, lng, scenario_ids, prices, rows, slots, is_active, is_demo, sort, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           title = excluded.title, address = excluded.address, lat = excluded.lat, lng = excluded.lng,
           scenario_ids = excluded.scenario_ids, prices = excluded.prices, rows = excluded.rows,
           slots = excluded.slots, is_active = excluded.is_active, is_demo = excluded.is_demo,
-          sort = excluded.sort, updated_at = excluded.updated_at`)
-        .run(id, v.title, v.address, v.lat, v.lng, JSON.stringify(v.scenarioIds), JSON.stringify(v.prices),
-          v.rows ? JSON.stringify(v.rows) : null, v.slots, v.isActive ? 1 : 0, isDemo ? 1 : 0, sort, nowIso());
-      return getLot(id);
+          sort = excluded.sort, updated_at = excluded.updated_at`,
+      [id, v.title, v.address, v.lat, v.lng, JSON.stringify(v.scenarioIds), JSON.stringify(v.prices),
+        v.rows ? JSON.stringify(v.rows) : null, v.slots, v.isActive ? 1 : 0, isDemo ? 1 : 0, sort, nowIso()]);
+      return getLot(id, t);
     });
   }
 
-  function setBlock(lotId, { spot, period, blocked }) {
-    const lot = getLot(lotId);
+  async function setBlock(lotId, { spot, period, blocked }) {
+    const lot = await getLot(lotId);
     if (!lot) throw new HttpError(404, 'lot_not_found', 'Turargoh topilmadi.');
     if (!PERIODS[period]) throw new HttpError(422, 'validation', 'Davr noto‘g‘ri.');
     if (!isSpotId(spot) || !flatSpots(lot).includes(spot)) throw new HttpError(422, 'validation', 'Bunday joy yo‘q.');
-    if (blocked) db.prepare('INSERT OR IGNORE INTO blocks (lot_id, spot, period) VALUES (?, ?, ?)').run(lotId, spot, period);
-    else db.prepare('DELETE FROM blocks WHERE lot_id = ? AND spot = ? AND period = ?').run(lotId, spot, period);
+    if (blocked) await db.run('INSERT OR IGNORE INTO blocks (lot_id, spot, period) VALUES (?, ?, ?)', [lotId, spot, period]);
+    else await db.run('DELETE FROM blocks WHERE lot_id = ? AND spot = ? AND period = ?', [lotId, spot, period]);
     return { spot, period, blocked: !!blocked };
   }
 
-  function stats() {
+  async function stats() {
     const since = (days) => new Date(clock() - days * 86_400_000).toISOString();
-    const counts = db.prepare('SELECT scenario_id, status, COUNT(*) AS n FROM bookings GROUP BY scenario_id, status').all();
+    const counts = await db.all('SELECT scenario_id, status, COUNT(*) AS n FROM bookings GROUP BY scenario_id, status');
     const scenarios = SCENARIOS.map((s) => {
       const row = { id: s.id, title: s.title, active: s.active, total: 0 };
       for (const st of STATUSES) row[st] = 0;
@@ -410,22 +412,23 @@ export function createService(db, { tzOffsetMinutes, clock = () => Date.now() })
       }
       return row;
     });
-    const count = (sql, ...args) => db.prepare(sql).get(...args).n;
+    const count = async (sql, args = []) => (await db.get(sql, args)).n;
     return {
       scenarios,
-      last7: count('SELECT COUNT(*) AS n FROM bookings WHERE created_at >= ?', since(7)),
-      last30: count('SELECT COUNT(*) AS n FROM bookings WHERE created_at >= ?', since(30)),
-      users: count('SELECT COUNT(*) AS n FROM users'),
-      pending: count("SELECT COUNT(*) AS n FROM bookings WHERE status = 'pending'")
+      last7: await count('SELECT COUNT(*) AS n FROM bookings WHERE created_at >= ?', [since(7)]),
+      last30: await count('SELECT COUNT(*) AS n FROM bookings WHERE created_at >= ?', [since(30)]),
+      users: await count('SELECT COUNT(*) AS n FROM users'),
+      pending: await count("SELECT COUNT(*) AS n FROM bookings WHERE status = 'pending'")
     };
   }
 
   return {
     now,
-    listLots() {
+    async listLots() {
       const at = now();
-      const occ = occupancy(at);
-      return { now: { date: at.date, time: at.time, period: at.period }, lots: q.lotsActive.all().map(lotFromRow).map((l) => publicLot(l, occ)) };
+      const occ = await occupancy(at);
+      const lots = (await db.all(SQL.lotsActive)).map(lotFromRow).map((l) => publicLot(l, occ));
+      return { now: { date: at.date, time: at.time, period: at.period }, lots };
     },
     createUser,
     updateUser,

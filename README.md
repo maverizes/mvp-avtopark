@@ -4,7 +4,7 @@ Haydovchi xaritada qaysi turargohda nechta joy bo‘shligini ko‘radi, joyni ta
 **faqat ism va telefon** bilan band qiladi. Joy darhol boshqalar uchun band bo‘lib ko‘rinadi,
 operatorga Telegram xabar boradi, operator panelda tasdiqlaydi.
 
-- Server: Node.js 24 (ichidagi SQLite bilan) — **npm paketlari yo‘q**, o‘rnatish kerak emas.
+- Server: Node.js 24. Kompyuterda baza — Node ichidagi SQLite (o‘rnatish kerak emas), Vercel’da — Turso.
 - Sayt: oddiy HTML, CSS va JS modullari — framework va bundler yo‘q.
 - Operator paneli: `/admin`.
 
@@ -18,8 +18,9 @@ server/          HTTP server, API, ma'lumotlar bazasi
   db.js          SQLite sxemasi va migratsiyalar
   auth.js        sessiyalar (cookie)
   http.js        marshrutlash, JSON, xavfsizlik sarlavhalari
-shared/          joy turlari — server ham, sayt ham ishlatadi
+api/index.js     Vercel funksiyasi (server/ dagi o‘sha ilova)
 public/          sayt: index.html, admin.html, styles.css, js/
+  shared/        joy turlari — server ham, sayt ham ishlatadi
   js/content.js  sayt matnlari va sozlamalari (tahrirlash shu yerda)
 seed/lots.json   birinchi ishga tushirishdagi turargohlar
 test/            avtomatik testlar
@@ -121,6 +122,24 @@ rad etilgan yoki bekor qilingan bron joyni bo‘shatadi.
 Yana bosing — bo‘shaydi. Bron qilingan joylar bron raqami bilan ko‘rsatiladi.
 
 **Statistika.** Har bir joy turiga nechta so‘rov kelgani — qaysi xizmatni birinchi ochishni shu ko‘rsatadi.
+
+## Vercel’ga joylash (bepul)
+
+Vercel serverni doimiy ishlatmaydi va fayl yozishga ruxsat bermaydi, shuning uchun ma’lumotlar
+**Turso** bazasida saqlanadi (SQLite bilan bir xil, bepul rejasi bor). Kod o‘zgarmaydi — faqat sozlamalar.
+
+1. **Baza.** Vercel → loyihangiz → **Storage** → **Create Database** → **Turso** → loyihaga ulang
+   (`TURSO_DATABASE_URL` va `TURSO_AUTH_TOKEN` o‘zi qo‘shiladi).
+   Ro‘yxatda Turso bo‘lmasa: turso.tech → baza yarating → **Connect** dan URL va token oling.
+2. **Sozlamalar.** Vercel → **Settings → Environment Variables**:
+   - `ADMIN_PASSWORD` — operator paroli (kamida 12 belgi);
+   - `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` — 1-qadamda qo‘shilmagan bo‘lsa;
+   - ixtiyoriy: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
+3. **Qayta joylash.** **Deployments** → oxirgi deploy → **Redeploy** (o‘zgaruvchilar shundan keyin kuchga kiradi).
+4. **Tekshirish.** `https://<loyiha>.vercel.app/api/health` ochilsa `{"ok":true,"db":"turso",…}` chiqishi kerak.
+   Xato bo‘lsa, o‘sha sahifa nimani sozlash kerakligini aytadi.
+
+Jadvallar birinchi so‘rovda o‘zi yaratiladi. Keyin `/admin` ga kirib, turargohlarni qo‘shing.
 
 ## Serverga joylash (VPS + Docker)
 
