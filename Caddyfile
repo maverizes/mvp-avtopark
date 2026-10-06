@@ -1,0 +1,5 @@
+# Domen .env dagi DOMAIN dan olinadi. Caddy HTTPS sertifikatini o'zi oladi va yangilaydi.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

@@ -1,0 +1,311 @@
+[
+  {
+    "id": "pilot-1",
+    "title": "Pilot turargoh",
+    "address": "",
+    "lat": null,
+    "lng": null,
+    "scenarioIds": [
+      "tungi",
+      "kunduzgi"
+    ],
+    "prices": {},
+    "rows": null,
+    "slots": null,
+    "isActive": false,
+    "isDemo": false
+  },
+  {
+    "id": "demo-idora",
+    "title": "Namuna: idora hovlisi",
+    "address": "Namuna manzil, 1",
+    "lat": 41.3065,
+    "lng": 69.2685,
+    "scenarioIds": [
+      "tungi"
+    ],
+    "prices": {},
+    "rows": [
+      [
+        "A1",
+        "A2",
+        "A3",
+        "A4",
+        "A5",
+        "A6"
+      ],
+      [
+        "B1",
+        "B2",
+        "B3",
+        "B4",
+        "B5",
+        "B6"
+      ]
+    ],
+    "slots": null,
+    "isActive": true,
+    "isDemo": true,
+    "busy": {
+      "night": [
+        "A2",
+        "A5",
+        "B1",
+        "B4"
+      ],
+      "day": []
+    }
+  },
+  {
+    "id": "demo-dokon",
+    "title": "Namuna: do‘kon oldi",
+    "address": "Namuna manzil, 2",
+    "lat": 41.2995,
+    "lng": 69.2401,
+    "scenarioIds": [
+      "tungi",
+      "kunduzgi"
+    ],
+    "prices": {},
+    "rows": [
+      [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      [
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+      ]
+    ],
+    "slots": null,
+    "isActive": true,
+    "isDemo": true,
+    "busy": {
+      "night": [
+        "1",
+        "2",
+        "3",
+        "7",
+        "8",
+        "9",
+        "10"
+      ],
+      "day": [
+        "2",
+        "6"
+      ]
+    }
+  },
+  {
+    "id": "demo-maktab",
+    "title": "Namuna: maktab hovlisi",
+    "address": "Namuna manzil, 3",
+    "lat": 41.319,
+    "lng": 69.295,
+    "scenarioIds": [
+      "kunduzgi",
+      "tadbir"
+    ],
+    "prices": {},
+    "rows": [
+      [
+        "K1",
+        "K2",
+        "K3",
+        "K4"
+      ],
+      [
+        "K5",
+        "K6",
+        "K7",
+        "K8"
+      ]
+    ],
+    "slots": null,
+    "isActive": true,
+    "isDemo": true,
+    "busy": {
+      "night": [],
+      "day": [
+        "K1",
+        "K2",
+        "K3",
+        "K5",
+        "K6",
+        "K7",
+        "K8"
+      ]
+    }
+  },
+  {
+    "id": "demo-bozor",
+    "title": "Namuna: bozor yonidagi maydon",
+    "address": "Namuna manzil, 4",
+    "lat": 41.3262,
+    "lng": 69.2355,
+    "scenarioIds": [
+      "kunduzgi",
+      "soatlik"
+    ],
+    "prices": {},
+    "rows": [
+      [
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "M5",
+        "M6"
+      ],
+      [
+        "M7",
+        "M8",
+        "M9",
+        "M10",
+        "M11",
+        "M12"
+      ],
+      [
+        "M13",
+        "M14",
+        "M15",
+        "M16",
+        "M17",
+        "M18"
+      ]
+    ],
+    "slots": null,
+    "isActive": true,
+    "isDemo": true,
+    "busy": {
+      "night": [],
+      "day": [
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "M5",
+        "M6",
+        "M7",
+        "M8",
+        "M9",
+        "M10",
+        "M11",
+        "M12",
+        "M13",
+        "M14",
+        "M15",
+        "M16",
+        "M17",
+        "M18"
+      ]
+    }
+  },
+  {
+    "id": "demo-hovli",
+    "title": "Namuna: turar-joy hovlisi",
+    "address": "Namuna manzil, 5",
+    "lat": 41.286,
+    "lng": 69.206,
+    "scenarioIds": [
+      "tungi"
+    ],
+    "prices": {},
+    "rows": [
+      [
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5"
+      ],
+      [
+        "H6",
+        "H7",
+        "H8",
+        "H9",
+        "H10"
+      ]
+    ],
+    "slots": null,
+    "isActive": true,
+    "isDemo": true,
+    "busy": {
+      "night": [
+        "H1",
+        "H2",
+        "H3",
+        "H5",
+        "H6",
+        "H7",
+        "H8",
+        "H10"
+      ],
+      "day": []
+    }
+  },
+  {
+    "id": "demo-biznes",
+    "title": "Namuna: biznes markaz",
+    "address": "Namuna manzil, 6",
+    "lat": 41.338,
+    "lng": 69.285,
+    "scenarioIds": [
+      "tungi",
+      "kunduzgi"
+    ],
+    "prices": {},
+    "rows": [
+      [
+        "C1",
+        "C2",
+        "C3",
+        "C4",
+        "C5",
+        "C6",
+        "C7",
+        "C8"
+      ],
+      [
+        "C9",
+        "C10",
+        "C11",
+        "C12",
+        "C13",
+        "C14",
+        "C15",
+        "C16"
+      ]
+    ],
+    "slots": null,
+    "isActive": true,
+    "isDemo": true,
+    "busy": {
+      "night": [
+        "C2",
+        "C9",
+        "C14"
+      ],
+      "day": [
+        "C1",
+        "C2",
+        "C3",
+        "C4",
+        "C6",
+        "C7",
+        "C9",
+        "C10",
+        "C11",
+        "C13",
+        "C14",
+        "C16"
+      ]
+    }
+  }
+]

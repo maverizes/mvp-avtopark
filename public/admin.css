@@ -1,0 +1,94 @@
+/* Operator paneli — asosiy uslublar styles.css dan */
+
+.login { display: grid; place-items: center; min-height: 100dvh; padding: 24px var(--gutter); }
+.login__card { width: 100%; max-width: 400px; padding: 28px; display: grid; gap: 16px; }
+.login__title { margin: 0; font-size: 28px; }
+
+.admin-tag { padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); font-size: 13px; }
+.admin-tabs { display: flex; gap: 4px; margin-left: auto; overflow-x: auto; }
+.admin-tab {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 14px; cursor: pointer; white-space: nowrap;
+  background: none; color: var(--text-2); border: 0; border-radius: var(--r); font: 600 15px/1 var(--body);
+}
+.admin-tab:hover { color: var(--text); background: var(--layer); }
+.admin-tab[aria-selected="true"] { color: var(--text); background: var(--card); box-shadow: inset 0 -2px 0 var(--accent); }
+.header .header__row { flex-wrap: wrap; }
+.admin-main { padding-top: 24px; padding-bottom: 64px; }
+.admin-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 16px; }
+.admin-bar p { margin: 0; }
+.admin-empty { padding: 24px 0; }
+
+/* Bron kartalari */
+.abk-list { display: grid; gap: 12px; }
+.abk { padding: 16px 18px; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--line-strong); border-radius: var(--r); }
+.abk--pending { border-left-color: var(--accent); }
+.abk--confirmed { border-left-color: var(--ok); }
+.abk__head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.abk__head .pill { margin-left: auto; }
+.abk__grid { display: grid; gap: 10px 20px; margin: 12px 0; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.abk__item { display: grid; gap: 2px; font-size: 15px; }
+.abk__item span { color: var(--muted); font-size: 13px; }
+.abk__item strong { font-weight: 600; overflow-wrap: anywhere; }
+.abk__item a { width: fit-content; min-height: 32px; display: inline-flex; align-items: center; }
+.abk__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Turargohlar */
+.lots-admin { display: grid; gap: 16px; }
+.lot-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.lot-list__btn {
+  display: grid; gap: 4px; width: 100%; padding: 12px 14px; text-align: left; cursor: pointer;
+  background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: var(--r); font: inherit;
+}
+.lot-list__btn:hover { border-color: var(--line-strong); }
+.lot-list__btn[aria-current="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.lot-list__title { font-weight: 600; }
+.lot-edit { padding: 20px; min-width: 0; }
+.le-form { display: grid; gap: 14px; }
+.le-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.le-title { margin: 0; font-size: 24px; }
+.le-subtitle { margin: 24px 0 4px; font-size: 20px; }
+.le-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.check { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; cursor: pointer; }
+.check input { width: 20px; height: 20px; min-height: 0; accent-color: var(--accent); }
+.le-scenarios { display: grid; gap: 8px; margin: 0; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); }
+.le-scenarios legend { padding: 0 6px; font-weight: 600; }
+.le-scenario { display: grid; gap: 8px; align-items: center; grid-template-columns: 1fr minmax(120px, 180px); }
+.spots-admin { margin-top: 8px; }
+.spots-admin .filters { margin: 12px 0; }
+
+/* Operator belgilagan (bosib bo'shatiladi) va bron qilingan joylar */
+.spots-admin .spot[data-state="busy"] { cursor: pointer; }
+.spots-admin .spot[data-state="busy"]::after { content: ''; position: absolute; inset: 6px 5px; background: #4A5275; border-radius: 8px; }
+.spots-admin .spot[data-state="busy"] .spot__id { position: relative; bottom: auto; color: var(--text); font-size: 13px; }
+.spots-admin .spot:disabled { cursor: default; }
+.spots-admin .spot:disabled::after { background: rgba(242, 169, 59, .16); border: 2px solid var(--accent); }
+.spots-admin .spot:disabled .spot__id { color: var(--accent); }
+
+/* Statistika */
+.stats-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stat { display: grid; gap: 4px; padding: 18px; }
+.stat__value { font: 700 34px/1 var(--head); color: var(--accent); }
+.stats-title { margin-top: 32px; font-size: 26px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); }
+.table { width: 100%; border-collapse: collapse; font-size: 15px; }
+.table th, .table td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.table thead th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.table tbody tr:last-child > * { border-bottom: 0; }
+.table td { font-variant-numeric: tabular-nums; }
+.table .badge { margin-left: 8px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; z-index: 100; max-width: calc(100% - 32px); margin: 0; padding: 12px 18px;
+  transform: translate(-50%, 20px); opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  background: var(--card); color: var(--text); border: 1px solid var(--line-strong); border-radius: var(--r); box-shadow: 0 10px 30px rgba(0, 0, 0, .4);
+}
+.toast.is-on { opacity: 1; transform: translate(-50%, 0); }
+.toast--ok { border-color: var(--ok); }
+.toast--error { border-color: var(--danger); }
+
+@media (min-width: 900px) {
+  .lots-admin { grid-template-columns: 320px minmax(0, 1fr); align-items: start; }
+  .lot-edit { padding: 28px; }
+  .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .admin-logout { margin-left: 8px; }
+}

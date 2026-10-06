@@ -1,0 +1,5 @@
+# Ma'lumotlar bazasi va maxfiy sozlamalar
+data/
+.env
+node_modules/
+.DS_Store

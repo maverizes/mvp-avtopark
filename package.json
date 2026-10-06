@@ -1,0 +1,15 @@
+{
+  "name": "joybor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "JoyBor — bo'sh turargoh joylarini haydovchilar bilan ulash platformasi",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server/index.js",
+    "dev": "node --disable-warning=ExperimentalWarning --watch-path=server --watch-path=shared server/index.js",
+    "test": "node --disable-warning=ExperimentalWarning --test 'test/**/*.test.js'"
+  }
+}

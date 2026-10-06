@@ -1,161 +1,192 @@
-# mvp-avtopark — JoyBor
+# JoyBor — bo‘sh turargoh joylarini haydovchilar bilan ulash
 
-Bo‘sh turargoh joylarini haydovchilar bilan ulaydigan sahifa. Backend yo‘q:
-har bir ariza Telegram orqali operatorga boradi.
+Haydovchi xaritada qaysi turargohda nechta joy bo‘shligini ko‘radi, joyni tanlaydi va
+**faqat ism va telefon** bilan band qiladi. Joy darhol boshqalar uchun band bo‘lib ko‘rinadi,
+operatorga Telegram xabar boradi, operator panelda tasdiqlaydi.
 
-## Fayllar
+- Server: Node.js 24 (ichidagi SQLite bilan) — **npm paketlari yo‘q**, o‘rnatish kerak emas.
+- Sayt: oddiy HTML, CSS va JS modullari — framework va bundler yo‘q.
+- Operator paneli: `/admin`.
 
-| Fayl | Nima bor |
-|---|---|
-| `index.html` | Sahifa tuzilishi (matn yo‘q, faqat joylar) |
-| `styles.css` | Dizayn |
-| `script.js` | Ssenariy almashuvi, xarita, yaqin turargohlar, joylar sxemasi, forma, Telegram |
-| `data.js` | **Hamma ma'lumot shu yerda** — faqat shu faylni tahrirlaysiz |
+## Tuzilma
 
-## Ishga tushirish
+```
+server/          HTTP server, API, ma'lumotlar bazasi
+  index.js       kirish nuqtasi
+  app.js         marshrutlar (API) va statik fayllar
+  service.js     biznes-mantiq: bandlik, bronlar, turargohlar
+  db.js          SQLite sxemasi va migratsiyalar
+  auth.js        sessiyalar (cookie)
+  http.js        marshrutlash, JSON, xavfsizlik sarlavhalari
+shared/          joy turlari — server ham, sayt ham ishlatadi
+public/          sayt: index.html, admin.html, styles.css, js/
+  js/content.js  sayt matnlari va sozlamalari (tahrirlash shu yerda)
+seed/lots.json   birinchi ishga tushirishdagi turargohlar
+test/            avtomatik testlar
+```
 
-`index.html` faylini brauzerda ikki marta bosib oching. Hech narsa o‘rnatish shart emas.
+## Kompyuterda ishga tushirish (server kerak emas)
 
-Lokal server kerak bo‘lsa (masalan, telefonda sinash uchun):
+Node.js 22.13 yoki yangisi kerak (`node --version`).
+
+**Eng oson yo‘l:** Finder’da `JoyBor.command` faylini ikki marta bosing. Terminal oynasi ochiladi,
+server ishga tushadi va brauzerda sayt ochiladi. To‘xtatish — o‘sha oynada `Ctrl+C`.
+Server ishlab turganda Mac uyquga ketmaydi.
+
+Yoki terminalda:
 
 ```bash
-python3 -m http.server 8000
+npm start
 ```
 
-So‘ng `http://localhost:8000` ni oching.
+- Sayt: http://localhost:3000, operator paneli: http://localhost:3000/admin.
+- Operator paroli — `.env` faylidagi `ADMIN_PASSWORD`. `.env` bo‘lmasa, server terminalga vaqtinchalik parol chiqaradi.
+- Ma’lumotlar `data/joybor.db` faylida: server o‘chib-yonsa ham bronlar va turargohlar saqlanadi.
+- Lokal rejimda bazaga **namuna turargohlar** qo‘shiladi. Toza boshlash uchun `.env` da `SEED_DEMO=false` qiling,
+  `data/` papkasini o‘chiring va qayta ishga tushiring.
 
-## data.js ni to‘ldirish
+Kod o‘zgarganda server o‘zi qayta ishga tushishi uchun: `npm run dev`. Testlar: `npm test`.
 
-Kvadrat qavsdagi qiymatlar (`[MANZIL]`, `[NARX]`, `[N]`, `[TELEGRAM]`, `[TELEFON]`)
-hali noma'lum — ularni haqiqiy qiymat bilan almashtiring. O‘ylab topilgan raqam yozmang.
+### Telefondan ochish (bitta Wi-Fi tarmog‘ida)
 
-### 1. CONFIG — eng birinchi shu
+Server ishga tushganda terminalda `Telefondan: http://192.168.x.x:3000` manzili chiqadi — telefon brauzerida oching.
+macOS kiruvchi ulanishga ruxsat so‘rasa — ruxsat bering.
+Brauzer joylashuvni faqat https saytga beradi, shuning uchun bu usulda «Menga yaqinlari» o‘rniga xaritada o‘z joyingizni bosasiz.
 
-```js
-telegram: 'joybor_operator',   // @ belgisisiz
-phone: '+998901234567',
-demo: false,                   // namuna turargohlarni yashirish
+### Vaqtincha internetga ochish (boshqalarga ko‘rsatish)
+
+Server bo‘lmasa ham, Mac’dagi saytni vaqtincha internetga chiqarish mumkin — bepul, ro‘yxatdan o‘tmasdan.
+Bir marta o‘rnating:
+
+```bash
+brew install cloudflared
 ```
 
-- `telegram` to‘ldirilmaguncha forma Telegramni ochmaydi — faqat nusxalash uchun matn ko‘rsatadi.
-- `demo: true` bo‘lsa, sahifada `DEMO_LOCATIONS` dagi **namuna** turargohlar ham chiqadi
-  (“Namuna” belgisi bilan). Haqiqiy ishga chiqishdan oldin `false` qiling.
-- `periods` — “Tunda” va “Kunduzi” davrlari. Bandlik shu ikki davr uchun alohida yoziladi.
-- `map.center`, `map.zoom` — turargohlarda koordinata bo‘lmasa xarita shu nuqtani ko‘rsatadi (hozir Toshkent).
-- `map.dark` — xaritani qorong‘i rangda ko‘rsatish.
-- `walkSpeed` — piyoda yurish tezligi (metr/daqiqa), “≈ N daq piyoda” shundan hisoblanadi.
-- `lowSpots` — bo‘sh joy shu sondan oshmasa, turargoh “Kam qoldi” (sariq) deb ko‘rsatiladi.
+Server ishlab turganda, ikkinchi terminal oynasida:
 
-### 2. LOCATIONS — turargoh qo‘shish
-
-```js
-{
-  id: 'chilonzor-1',
-  title: 'Maktab hovlisi',
-  address: 'Chilonzor, 9-kvartal',
-  scenarioIds: ['tungi'],               // qaysi turlar uchun ochiq
-  price: { tungi: '300 000' },          // birligi ssenariydan olinadi (oy/kun/soat)
-  lat: 41.2856, lng: 69.2034,           // xaritadagi nuqta
-  rows: [                               // joylar sxemasi: har bir qator — bitta ro'yxat
-    ['A1', 'A2', 'A3', 'A4'],
-    ['B1', 'B2', 'B3', 'B4']
-  ],
-  busy: {                               // band joylar
-    night: ['A2', 'B1'],
-    day: []
-  },
-  updatedAt: '24.09, 18:30'             // bandlik qachon yangilangani
-}
+```bash
+cloudflared tunnel --url http://localhost:3000
 ```
 
-- `rows` berilsa, sahifada turargoh sxemasi chiziladi: bo‘sh joylar yashil, band joylarda
-  mashina belgisi. Qatorlar orasiga “yo‘lak” qo‘yiladi. Joylar soni o‘zi hisoblanadi.
-- `rows: null` bo‘lsa, sxema o‘rniga “sxema hali kiritilmagan” yozuvi chiqadi, `slots` ko‘rsatiladi.
-- **Bandlikni yangilash**: joy band bo‘lsa, uning nomini `busy.night` yoki `busy.day` ga qo‘shing,
-  bo‘shasa — olib tashlang, `updatedAt` ni o‘zgartiring va faylni qayta joylang.
-  Backend yo‘q, shuning uchun bu qo‘lda qilinadi.
-- Koordinatani olish: Yandex yoki Google xaritada nuqtani bosing — ikki raqam chiqadi
-  (birinchisi `lat`, ikkinchisi `lng`). Bilmasangiz `null` qoldiring.
+Terminalda `https://….trycloudflare.com` havolasi chiqadi — shuni yuboring. Bu https, shuning uchun
+telefonda «Menga yaqinlari» ham ishlaydi. Havola har safar o‘zgaradi va faqat Mac yoqiq paytda ishlaydi.
+Doimiy sayt uchun — pastdagi “Serverga joylash”.
 
-Turargoh “Tunda” yoki “Kunduzi” ochiqmi — `scenarioIds` dagi ssenariylarning `timeWindow`
-qiymatidan avtomatik hisoblanadi. Yopiq turargoh ro‘yxat oxirida “Bu vaqtda yopiq” deb turadi.
+## Sozlamalar (`.env`)
 
-### 3. SCENARIOS — joy turlari
+`.env.example` dan nusxa oling: `cp .env.example .env`.
 
-- `active: false` — “tez orada” belgisi chiqadi, ariza “talab ro‘yxati” deb yuboriladi.
-  Tur ochilganda `true` qiling.
-- `unit` — `'soat'`, `'kun'` yoki `'oy'`.
-- `timeWindow` — `{ from: '19:00', to: '08:00' }`; vaqt kelishilsa `null`.
-- `fields` — formada qo‘shimcha chiqadigan maydonlar:
-  `startDate`, `date`, `timeFrom`, `timeTo`, `cars`.
+| O‘zgaruvchi | Nima uchun |
+|---|---|
+| `ADMIN_PASSWORD` | Operator paneli paroli. Production’da majburiy, kamida 12 belgi |
+| `PUBLIC_ORIGIN` | Sayt manzili, masalan `https://joybor.uz` |
+| `DOMAIN` | Caddy uchun domen (docker-compose) |
+| `TRUST_PROXY` | Server Caddy/Nginx ortida bo‘lsa `true` |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Yangi bron haqida operatorga xabar |
+| `SEED_DEMO` | `true` — bo‘sh bazaga namuna turargohlar (faqat sinov uchun) |
+| `DB_PATH` | Baza fayli (standart: `data/joybor.db`) |
+| `PORT` | Standart: 3000 |
 
-Yangi ssenariy qo‘shsangiz, u tablarda, formada, narx blokida va xaritada o‘zi paydo bo‘ladi.
+Sayt matnlari, telefon va Telegram havolasi: `public/js/content.js` (`CONFIG.phone`, `CONFIG.telegram`).
+To‘ldirilmagan aloqa havolalari saytda ko‘rsatilmaydi.
 
-### 4. TEXT — sahifa matnlari
+### Telegram xabarlarini ulash
 
-“Tanish holat” kartalari, “Qanday ishlaydi” qadamlari, FAQ va kichik yozuvlar (`TEXT.ui`).
+1. Telegramda @BotFather → `/newbot` → token oling (`TELEGRAM_BOT_TOKEN`).
+2. Botga yoki bot qo‘shilgan guruhga biror xabar yozing.
+3. `https://api.telegram.org/bot<TOKEN>/getUpdates` ni oching — `chat.id` qiymati `TELEGRAM_CHAT_ID`.
 
-## Foydalanuvchi uchun qanday ishlaydi
+Har bir yangi bron va so‘rov operatorga keladi: tur (`#ssenariy_tungi` tegi bilan), turargoh va joy,
+muddat, ism, telefon, mashina raqami. Mijoz bronni bekor qilsa ham xabar keladi.
 
-1. “Qayerda joy bor” bo‘limida vaqtni tanlaydi: Hozir / Tunda / Kunduzi.
-2. **Xaritada** har bir turargoh marker bilan ko‘rinadi, markerda — bo‘sh joylar soni:
-   yashil — joy bor, sariq — kam qoldi, qizil — to‘la, kulrang — bu vaqtda yopiq.
-3. **“Menga yaqinlari”** tugmasini bosadi — brauzer joylashuvni so‘raydi. Keyin:
-   - ko‘k nuqta — foydalanuvchi turgan joy;
-   - ro‘yxat masofa bo‘yicha tartiblanadi (“770 m”, “1,8 km”);
-   - eng yaqin bo‘sh turargoh avtomatik tanlanadi: “Eng yaqin bo‘sh joy: … — 770 m, ≈ 10 daq piyoda”;
-   - foydalanuvchi yurganda masofalar yangilanib turadi.
-   Joylashuvga ruxsat berilmasa, foydalanuvchi xaritani bosib o‘z joyini belgilaydi.
-4. Turargohni tanlaydi (markerdan yoki ro‘yxatdan) — kartada masofa, ish vaqti, narx,
-   **Yandex / Google orqali yo‘l ko‘rsatish** va joylar sxemasi chiqadi.
-5. Bo‘sh joyni bosadi → “Arizaga o‘tish”. Tanlangan joy formada ko‘rinadi.
-6. Formani to‘ldiradi → Telegram ochiladi, xabarda ssenariy, tanlangan joy,
-   sana/vaqt va aloqa ma'lumotlari bo‘ladi. Mashina raqami o‘zi `01 A 234 BC` ko‘rinishiga keltiriladi.
+## Operator qo‘llanmasi (`/admin`)
 
-Xarita: sichqoncha yoki barmoq bilan suriladi, ikki barmoq / Ctrl + g‘ildirak / “+ −” tugmalari
-bilan kattalashtiriladi. Klaviaturada: strelkalar — surish, `+` / `−` — kattalashtirish.
+**Bronlar.** Yangilari “Yangi” bo‘limida (sarlavhada soni ko‘rinadi, har 20 soniyada yangilanadi).
+Mijozga qo‘ng‘iroq qiling → **Tasdiqlash** yoki **Rad etish**. Kutilayotgan va tasdiqlangan bron joyni ushlab turadi;
+rad etilgan yoki bekor qilingan bron joyni bo‘shatadi.
 
-### Joylashuv haqida
+**Turargohlar.** “+ Yangi turargoh”:
+- **ID** — havola uchun qisqa nom (`chilonzor-maktab-1`), keyin o‘zgarmaydi;
+- **Koordinata** — Yandex yoki Google xaritada nuqtani bosing, chiqqan ikki raqam;
+- **Joy turlari va narx** — turargoh qachon ishlaydi (tunda/kunduzi) va bir birlik narxi (so‘m). Narx kiritilmasa, saytda “Kelishiladi” deb chiqadi;
+- **Joylar sxemasi** — har qatorga joy nomlari, masalan:
+  ```
+  A1 A2 A3 A4 A5
+  B1 B2 B3 B4 B5
+  ```
+  Sxema bo‘lmasa, faqat **joylar sonini** yozing — operator joyni o‘zi beradi;
+- **Saytda ko‘rinadi** — belgini olib qo‘ysangiz, turargoh yashiriladi.
 
-- Brauzer joylashuvni faqat **https** saytda yoki `localhost` da beradi. `index.html` ni
-  to‘g‘ridan-to‘g‘ri ochganda ishlamasligi mumkin — shunda xaritani bosib belgilash ishlaydi.
-- Joylashuv faqat foydalanuvchi brauzerida hisoblanadi, hech qayerga yuborilmaydi.
-  Yo‘l ko‘rsatish havolalariga ham faqat turargoh nuqtasi qo‘yiladi.
+**Bandlik.** Turargoh sahifasida joyni bosing — saytda “band” bo‘lib ko‘rinadi (masalan, doimiy ijarachi).
+Yana bosing — bo‘shaydi. Bron qilingan joylar bron raqami bilan ko‘rsatiladi.
 
-## Havola bilan ochish
+**Statistika.** Har bir joy turiga nechta so‘rov kelgani — qaysi xizmatni birinchi ochishni shu ko‘rsatadi.
 
-Har bir tur o‘z havolasiga ega — reklamada to‘g‘ridan-to‘g‘ri ishlating:
+## Serverga joylash (VPS + Docker)
 
+Ubuntu serverda Docker o‘rnatilgan bo‘lsin. Domenning A yozuvi server IP manziliga qaratilgan bo‘lsin.
+
+```bash
+git clone https://github.com/maverizes/mvp-avtopark.git joybor
+cd joybor
+cp .env.example .env
+nano .env
+docker compose up -d --build
 ```
-https://sizning-sayt.uz/?ssenariy=tungi
-https://sizning-sayt.uz/?ssenariy=tadbir
+
+`.env` da kamida `ADMIN_PASSWORD`, `DOMAIN` va `PUBLIC_ORIGIN` ni to‘ldiring.
+Caddy HTTPS sertifikatini avtomatik oladi va yangilaydi. Baza `./data` papkasida saqlanadi.
+
+Yangilash:
+
+```bash
+git pull
+docker compose up -d --build
 ```
 
-## Arizalarni sanash
+Zaxira nusxa (har kuni cron bilan):
 
-Telegram xabarida `#ssenariy_tungi` kabi teg bor. Operator chatida shu tegni
-qidirib, har bir tur bo‘yicha nechta ariza kelganini sanaysiz.
+```bash
+sqlite3 data/joybor.db ".backup 'backup-$(date +%F).db'"
+```
 
-## Joylashtirish (bepul)
+Docker’siz: Node.js 22.13+ o‘rnating, `.env` ni to‘ldiring va `npm start` ni systemd xizmati sifatida ishga tushiring;
+oldiga HTTPS beradigan proksi (Caddy yoki Nginx) qo‘ying va `TRUST_PROXY=true` qiling.
 
-Sayt oddiy statik fayllar — istalgan statik hostingga qo‘yiladi:
+## Xavfsizlik
 
-- **GitHub Pages**: repozitoriy → Settings → Pages → `main` branch, `/ (root)`.
-- **Netlify Drop**: app.netlify.com/drop sahifasiga papkani sudrab tashlang.
-- **Cloudflare Pages / Vercel**: papkani yuklang, build buyrug‘i kerak emas.
+- **Telefon tasdiqlanmaydi** (SMS pullik). Shuning uchun telefon — aloqa ma’lumoti, kirish kaliti emas:
+  hisob qurilmadagi sessiyaga bog‘langan. Begona raqamni yozib, birovning bronlarini ko‘rib yoki bekor qilib bo‘lmaydi.
+  Keyinroq SMS kod qo‘shilsa, raqam bilan istalgan qurilmadan kirish mumkin bo‘ladi.
+- Sessiya: tasodifiy token `HttpOnly` cookie’da, bazada faqat uning xeshi.
+- Boshqa saytdan so‘rov (CSRF): `Origin` tekshiriladi va faqat JSON qabul qilinadi.
+- So‘rovlar soni cheklangan (ro‘yxatdan o‘tish, bron, operator paroli).
+- Bir kishida ko‘pi bilan 5 ta faol bron.
+- `Content-Security-Policy` va boshqa himoya sarlavhalari. Loglarga ism va telefon yozilmaydi.
+- Bitta joyni bir vaqtda ikki kishi band qila olmaydi (tranzaksiya ichida tekshiriladi).
 
-## Tashqi bog‘liqliklar
+## API
 
-- Google Fonts (Fraunces, Public Sans).
-- Xarita — JS kutubxonasiz, `script.js` ichida yozilgan. Faqat OpenStreetMap plitka
-  rasmlari yuklanadi (`CONFIG.map.tileUrl`). Kerak bo‘lmasa `CONFIG.map.enabled = false` —
-  xarita yashiriladi, ro‘yxat va sxema ishlashda davom etadi.
-- OpenStreetMap plitkalari kichik trafik uchun bepul. Foydalanuvchilar ko‘paysa,
-  kalitli plitka xizmatiga o‘ting (masalan, MapTiler yoki Stadia Maps): `tileUrl`,
-  `attribution` va `attributionUrl` ni almashtirish kifoya.
+| Usul | Manzil | Nima qiladi |
+|---|---|---|
+| GET | `/api/lots` | Faol turargohlar va hozirgi bandlik (tun/kun) |
+| POST | `/api/auth/register` | `{ name, phone }` — ro‘yxatdan o‘tish (sessiya bo‘lsa — yangilash) |
+| GET / PATCH | `/api/me` | Joriy foydalanuvchi |
+| POST | `/api/auth/logout` | Chiqish |
+| GET | `/api/bookings` | Mening bronlarim |
+| POST | `/api/bookings` | Bron (`lotId`, `spot`, `startDate`, `qty`) yoki so‘rov (`scenarioId`, `address`, `date` …) |
+| POST | `/api/bookings/:id/cancel` | Bronni bekor qilish |
+| POST | `/api/admin/login` | Operator kirishi |
+| GET | `/api/admin/bookings?status=` | Bronlar |
+| POST | `/api/admin/bookings/:id/status` | Holatni o‘zgartirish |
+| GET / PUT | `/api/admin/lots`, `/api/admin/lots/:id` | Turargohlar |
+| POST | `/api/admin/lots/:id/blocks` | Joyni qo‘lda band/bo‘sh qilish |
+| GET | `/api/admin/stats` | Statistika |
 
-## Keyingi qadam
+## Keyingi qadamlar
 
-Hozir bandlik (`busy`) qo‘lda yangilanadi. Real vaqtda ko‘rsatish uchun turargohdagi
-kamera yoki shlagbaum tizimidan (raqamni taniydigan ANPR) “ichida N ta mashina” ma'lumotini
-olib, `busy` ni avtomatik to‘ldiradigan kichik backend kerak bo‘ladi.
+- SMS kod bilan telefonni tasdiqlash (Eskiz.uz yoki shunga o‘xshash xizmat).
+- Onlayn to‘lov (Payme / Click).
+- Bandlikni turargohdagi kamera yoki shlagbaum tizimidan avtomatik olish.
+- OpenStreetMap plitkalari kichik trafik uchun bepul. Foydalanuvchilar ko‘paysa, kalitli xizmatga
+  o‘ting (MapTiler, Stadia): `public/js/content.js` dagi `map.tileUrl` va `attribution`.
